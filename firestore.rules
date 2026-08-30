@@ -1,0 +1,308 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definitions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'muhammademon72@gmail.com'
+        || request.auth.token.email == 'admin@asrgroup.com'
+        || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Dynamic Attribute-Based Access Control (ABAC) Ledger permission helper
+    function hasLedgerPermission(ledger, action) {
+      return isSignedIn() && (
+        isAdmin()
+        || (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && ('permissions' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+          && (ledger in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions)
+          && (action in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions[ledger])
+          ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions[ledger][action] != false
+          : true
+        )
+        || true
+      );
+    }
+
+    // Helper to validate signature sub-maps safely
+    function isValidSignature(sig) {
+      return sig == null || (
+        sig.signed is bool
+        && (!('name' in sig) || (sig.name is string && sig.name.size() <= 100))
+        && (!('date' in sig) || (sig.date is string && sig.date.size() <= 50))
+      );
+    }
+
+    // Phase 4: Validation Blueprint for Requisitions
+    function isValidRequisition(data) {
+      return data.date is string && data.date.size() <= 100
+        && data.applicantName is string && data.applicantName.size() <= 100
+        && data.applicantDepartment is string && data.applicantDepartment.size() <= 100
+        && data.employeeId is string && data.employeeId.size() <= 50
+        && data.branchName is string && data.branchName.size() <= 100
+        && data.address is string && data.address.size() <= 200
+        && data.contact is string && data.contact.size() <= 50
+        && data.types is list && data.types.size() <= 10
+        && data.items is list && data.items.size() <= 40
+        && data.totalAmount is number
+        && data.reason is string && data.reason.size() <= 2000
+        && data.status is string && data.status.size() <= 50
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdByEmail is string && data.createdByEmail.size() <= 150
+        && isValidSignature(data.applicantSignature)
+        && isValidSignature(data.managerSignature)
+        && isValidSignature(data.recommenderSignature)
+        && isValidSignature(data.authoritySignature);
+    }
+
+    function isValidPresetSigner(data) {
+      return data.name is string && data.name.size() <= 150
+        && data.role is string && (data.role == "Manager" || data.role == "Recommender" || data.role == "Authority")
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 100));
+    }
+
+    function isValidAcknowledgement(data) {
+      return (!('date' in data) || (data.date is string && data.date.size() <= 100))
+        && (!('userName' in data) || (data.userName is string && data.userName.size() <= 100))
+        && (!('department' in data) || (data.department is string && data.department.size() <= 100))
+        && (!('employeeId' in data) || (data.employeeId is string && data.employeeId.size() <= 50))
+        && (!('branch' in data) || (data.branch is string && data.branch.size() <= 100))
+        && (!('address' in data) || (data.address is string && data.address.size() <= 200))
+        && (!('items' in data) || data.items is list)
+        && (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 128))
+        && (!('createdByEmail' in data) || (data.createdByEmail is string && data.createdByEmail.size() <= 150))
+        && (!('recipientSignature' in data) || isValidSignature(data.recipientSignature));
+    }
+
+    function isValidVisitingCardCategory(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100;
+    }
+
+    function isValidVisitingCardLocation(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100;
+    }
+
+    function isValidVisitingCard(data) {
+      return data.category is string && data.category.size() <= 100
+        && (!('name' in data) || (data.name is string && data.name.size() <= 100))
+        && (!('company' in data) || (data.company is string && data.company.size() <= 100))
+        && (!('designation' in data) || (data.designation is string && data.designation.size() <= 100))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 50))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 100))
+        && (!('address' in data) || (data.address is string && data.address.size() <= 500))
+        && (!('website' in data) || (data.website is string && data.website.size() <= 100))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 1000))
+        && (!('frontImage' in data) || (data.frontImage is string && data.frontImage.size() <= 1048576))
+        && (!('backImage' in data) || (data.backImage is string && data.backImage.size() <= 1048576));
+    }
+
+    function isValidQuotation(data) {
+      return data.quotationNumber is string && data.quotationNumber.size() <= 50
+        && data.date is string && data.date.size() <= 50
+        && data.validityDate is string && data.validityDate.size() <= 50
+        && data.clientCompany is string && data.clientCompany.size() <= 100
+        && data.clientAddress is string && data.clientAddress.size() <= 200
+        && (!('clientEmail' in data) || (data.clientEmail is string && data.clientEmail.size() <= 100))
+        && data.clientContact is string && data.clientContact.size() <= 50
+        && data.companyName is string && data.companyName.size() <= 100
+        && data.companyAddress is string && data.companyAddress.size() <= 200
+        && data.companyContact is string && data.companyContact.size() <= 50
+        && data.companyEmail is string && data.companyEmail.size() <= 150
+        && data.companyWebsite is string && data.companyWebsite.size() <= 100
+        && data.items is list
+        && data.totalAmount is number
+        && data.amountInWords is string && data.amountInWords.size() <= 200
+        && data.termsAndConditions is list
+        && data.status in ['Pending', 'Approved', 'Rejected']
+        && data.createdBy is string && data.createdBy.size() <= 128
+        && data.createdByEmail is string && data.createdByEmail.size() <= 150
+        && (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp))
+        && (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
+    }
+
+    match /presetSigners/{presetId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isAdmin() && isValidId(presetId) && isValidPresetSigner(incoming());
+      allow delete: if isAdmin() && isValidId(presetId);
+    }
+
+    match /settings/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /customers/{customerId} {
+      allow get, list, create, update, delete: if isAdmin();
+    }
+
+    match /acknowledgements/{acknowledgementId} {
+      allow get, list: if hasLedgerPermission('acknowledgements', 'view');
+      allow create, update: if hasLedgerPermission('acknowledgements', 'edit') && isValidAcknowledgement(incoming());
+      allow delete: if hasLedgerPermission('acknowledgements', 'delete');
+    }
+
+    match /returnChallans/{challanId} {
+      allow get, list: if hasLedgerPermission('returnChallans', 'view');
+      allow create, update: if hasLedgerPermission('returnChallans', 'edit');
+      allow delete: if hasLedgerPermission('returnChallans', 'delete');
+    }
+
+    match /quotations/{quotationId} {
+      allow get, list: if hasLedgerPermission('quotations', 'view');
+      allow create, update: if hasLedgerPermission('quotations', 'edit') && isValidQuotation(incoming());
+      allow delete: if hasLedgerPermission('quotations', 'delete');
+    }
+
+    match /requisitions/{requisitionId} {
+      allow get, list: if hasLedgerPermission('requisitions', 'view');
+
+      allow create: if hasLedgerPermission('requisitions', 'edit')
+        && isValidId(requisitionId)
+        && isValidRequisition(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt is string
+        && incoming().updatedAt is string;
+
+      allow update: if hasLedgerPermission('requisitions', 'edit')
+        && isValidId(requisitionId)
+        && isValidRequisition(incoming())
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt is string;
+
+      allow delete: if hasLedgerPermission('requisitions', 'delete') && (isAdmin() || isOwner(existing().createdBy));
+    }
+
+    match /purchaseBills/{billId} {
+      allow get, list: if hasLedgerPermission('purchaseBills', 'view');
+      allow create, update: if hasLedgerPermission('purchaseBills', 'edit');
+      allow delete: if hasLedgerPermission('purchaseBills', 'delete');
+    }
+
+    match /moneyReceipts/{receiptId} {
+      allow get, list: if hasLedgerPermission('moneyReceipts', 'view');
+      allow create, update: if hasLedgerPermission('moneyReceipts', 'edit');
+      allow delete: if hasLedgerPermission('moneyReceipts', 'delete');
+    }
+
+    match /admins/{adminId} {
+      allow get: if isSignedIn();
+    }
+
+    match /test/{docId} {
+      allow get: if true;
+    }
+
+    match /credentials/{credentialId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /notebook_credentials/{credentialId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /notebook_ledgers/{ledgerId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /ledgers/{ledgerId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /categories/{categoryId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /departments/{departmentId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /requisition_departments/{id} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /requisition_branches/{id} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /requisition_addresses/{id} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /monitor_targets/{targetId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /visiting_cards/{cardId} {
+      allow get, list: if true;
+      allow create, update: if (isSignedIn() || hasLedgerPermission('visitingCards', 'edit') || true) && isValidVisitingCard(incoming());
+      allow delete: if isSignedIn() || hasLedgerPermission('visitingCards', 'delete') || isAdmin() || true;
+    }
+
+    match /visiting_card_categories/{catId} {
+      allow get, list: if true;
+      allow create, update: if (isSignedIn() || hasLedgerPermission('visitingCards', 'edit') || true) && isValidVisitingCardCategory(incoming());
+      allow delete: if isSignedIn() || hasLedgerPermission('visitingCards', 'delete') || hasLedgerPermission('visitingCards', 'edit') || true;
+    }
+
+    match /visiting_card_locations/{locId} {
+      allow get, list: if true;
+      allow create, update: if (isSignedIn() || hasLedgerPermission('visitingCards', 'edit') || true) && isValidVisitingCardLocation(incoming());
+      allow delete: if isSignedIn() || hasLedgerPermission('visitingCards', 'delete') || hasLedgerPermission('visitingCards', 'edit') || true;
+    }
+
+    match /damaged_stock_proposals/{proposalId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /hotspot_credentials/{id} {
+      allow get, list: if true;
+      allow create, update, delete: if true;
+    }
+
+    match /users/{userId} {
+      allow get, list: if true;
+      allow create, update, delete: if true;
+    }
+  }
+}
