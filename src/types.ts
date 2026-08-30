@@ -25,6 +25,7 @@ export interface UserProfile {
   username?: string;
   displayName?: string;
   email: string;
+  password?: string;
   role: 'admin' | 'viewer' | 'editor';
   status?: 'approved' | 'pending' | 'rejected';
   createdAt?: any;
