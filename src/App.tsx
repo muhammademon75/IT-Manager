@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth, subscribeQuotaState, checkIsQuotaError, setQuotaExceededState } from './firebase';
-import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User, signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
+import { onAuthStateChanged, signOut, User, signInWithEmailAndPassword } from 'firebase/auth';
 import { motion, AnimatePresence } from 'motion/react';
 import Dashboard from './components/Dashboard';
 import RequisitionForm from './components/RequisitionForm';
@@ -25,7 +25,7 @@ import { RemoteCredentialLedger } from './components/RemoteCredentialLedger';
 import { NotebookLedger } from './components/NotebookLedger';
 import { StorageCluster } from './components/StorageCluster';
 import { Requisition, Acknowledgement, ReturnChallan, ProductQuotation, CompanyProfile, PurchaseBill, UserProfile, UserPermissions, DamagedStockProposal } from './types';
-import { FolderHeart, LogIn, LogOut, Code, Heart, Monitor, Terminal, FileCheck, Database, FileText, Settings, PanelLeftOpen, PanelLeftClose, RefreshCw, Activity, CreditCard, Wifi, BookOpen, Clock, ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
+import { FolderHeart, LogIn, LogOut, Code, Heart, Monitor, Terminal, FileCheck, Database, FileText, Settings, PanelLeftOpen, PanelLeftClose, RefreshCw, Activity, CreditCard, Wifi, BookOpen, Clock, ShieldAlert, CheckCircle2, XCircle, User as UserIcon, Lock, Eye, EyeOff, ShieldCheck, KeyRound, Sparkles } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -42,9 +42,9 @@ export default function App() {
   }, []);
   
   // Login states
-  const [loginTab, setLoginTab] = useState<'google' | 'email_password'>('google');
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginUserIdOrEmail, setLoginUserIdOrEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   
@@ -385,34 +385,66 @@ export default function App() {
     }
   }, [view, isAdmin, user, userProfile]);
 
-  const handleGoogleLogin = async () => {
-    setLoginError(null);
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (err) {
-      console.error("Google login failed: ", err);
-      setLoginError("Google login failed. Please check network or popups.");
-    }
-  };
-
-  const handleEmailPasswordLogin = async (e: React.FormEvent) => {
+  const handleUserLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginEmail || !loginPassword) {
-      setLoginError("Please enter your email and password.");
+    const input = (loginUserIdOrEmail || '').trim();
+    if (!input) {
+      setLoginError("Please enter your User ID or Email.");
       return;
     }
+    if (!loginPassword) {
+      setLoginError("Please enter your password.");
+      return;
+    }
+
     setLoginError(null);
     setIsLoggingIn(true);
+
     try {
-      await signInWithEmailAndPassword(auth, loginEmail.toLowerCase().trim(), loginPassword);
+      let targetEmail = input.toLowerCase();
+
+      // If user provided a User ID/Username without an '@' sign
+      if (!input.includes('@')) {
+        try {
+          const usersSnap = await getDocs(collection(db, 'users'));
+          const cleanInput = input.toLowerCase();
+          const found = usersSnap.docs.find(d => {
+            const data = d.data();
+            const uidStr = d.id.toLowerCase();
+            return (
+              (data.userId && data.userId.toLowerCase() === cleanInput) ||
+              (data.username && data.username.toLowerCase() === cleanInput) ||
+              uidStr === cleanInput ||
+              uidStr === 'pre_' + cleanInput
+            );
+          });
+
+          if (found && found.data()?.email) {
+            targetEmail = found.data().email.toLowerCase();
+          } else {
+            // Internal formatted ID email default
+            targetEmail = `${cleanInput.replace(/[^a-z0-9_-]/g, '')}@itmanager.local`;
+          }
+        } catch (scanErr) {
+          console.warn("User lookup via firestore failed, trying constructed email:", scanErr);
+          targetEmail = `${input.toLowerCase().replace(/[^a-z0-9_-]/g, '')}@itmanager.local`;
+        }
+      }
+
+      await signInWithEmailAndPassword(auth, targetEmail, loginPassword);
     } catch (err: any) {
-      console.error("Email login failed:", err);
-      let errMsg = "Incorrect email or password.";
-      if (err?.code === 'auth/user-not-found' || err?.code === 'auth/wrong-password') {
-        errMsg = "Invalid email or password.";
-      } else if (err?.code === 'auth/invalid-credential') {
-        errMsg = "Incorrect email or password.";
+      console.error("Login failed:", err);
+      let errMsg = "Invalid User ID/Email or Password.";
+      if (
+        err?.code === 'auth/user-not-found' ||
+        err?.code === 'auth/wrong-password' ||
+        err?.code === 'auth/invalid-credential'
+      ) {
+        errMsg = "Incorrect User ID/Email or Password. Please verify your credentials.";
+      } else if (err?.code === 'auth/too-many-requests') {
+        errMsg = "Access temporarily locked due to multiple failed attempts. Please try again later.";
+      } else if (err?.code === 'auth/network-request-failed') {
+        errMsg = "Network communication error. Please check your internet connection.";
       }
       setLoginError(errMsg);
     } finally {
@@ -435,13 +467,13 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center font-sans">
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center font-sans">
         <div className="relative">
-          <div className="w-12 h-12 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin"></div>
-          <FileCheck className="h-5 w-5 text-indigo-600 absolute top-3.5 left-3.5 animate-pulse" />
+          <div className="w-12 h-12 border-4 border-slate-700 border-t-indigo-500 rounded-full animate-spin"></div>
+          <FileCheck className="h-5 w-5 text-indigo-400 absolute top-3.5 left-3.5 animate-pulse" />
         </div>
-        <p className="text-sm font-semibold text-gray-600 mt-4">Initializing requisition platform...</p>
-        <p className="text-xs text-gray-400 mt-1">Booting secure Firebase services</p>
+        <p className="text-sm font-semibold text-slate-300 mt-4">Initializing IT Requisition Portal...</p>
+        <p className="text-xs text-slate-500 mt-1 font-mono">Authenticating with Cloud Services</p>
       </div>
     );
   }
@@ -449,39 +481,93 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-indigo-100 selection:text-indigo-900 text-slate-900">
       {!user ? (
-        <div className="min-h-screen w-full bg-slate-50 flex flex-col items-center justify-center py-20 px-4 sm:px-6">
-          <div className="max-w-md w-full bg-white border border-slate-200 rounded-3xl p-8 shadow-xl text-center">
-            {/* Visual Emblem */}
-            <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xs">
-              <FileCheck className="h-8 w-8" />
-            </div>
-
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight font-sans">
-              IT Equipment Requisition
-            </h2>
-            <p className="text-sm text-slate-500 mt-2.5 max-w-xs mx-auto mb-6">
-              Access the digital secure gateway of IT MANAGER's Information Technology Department to file, approve, and audit procurement requisitions.
-            </p>
-
-            {loginError && (
-              <div className="p-3 mb-6 bg-rose-50 border border-rose-150 text-rose-750 text-xs font-semibold rounded-xl flex items-center gap-2 text-left">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-600 shrink-0 animate-pulse"></span>
-                <span className="leading-tight">{loginError}</span>
+        <div className="min-h-screen w-full bg-[#f8fafc] flex flex-col items-center justify-center p-4 sm:p-6">
+          <div className="w-full max-w-[440px]">
+            {/* Sign In Card */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-8 sm:p-10">
+              <div className="mb-7">
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                  Sign In
+                </h1>
+                <p className="text-sm text-slate-500 mt-1">
+                  Enter your credentials to access the system
+                </p>
               </div>
-            )}
 
-            <div className="space-y-3 mb-2">
-              <button
-                onClick={handleGoogleLogin}
-                className="w-full flex items-center justify-center px-4 py-3.5 border border-slate-200 rounded-2xl shadow-xs text-sm font-bold text-slate-700 bg-white hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 transition duration-150 focus:outline-none cursor-pointer"
-              >
-                <LogIn className="h-4.5 w-4.5 mr-2 text-indigo-600" />
-                Sign In with Google
-              </button>
-            </div>
+              {loginError && (
+                <div className="p-3 mb-5 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-xl flex items-start gap-2 animate-in fade-in">
+                  <XCircle className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{loginError}</span>
+                </div>
+              )}
 
-            <div className="mt-6 pt-5 border-t border-gray-100 flex items-center justify-center space-x-1.5 text-[10px] text-gray-400 font-semibold uppercase tracking-wider font-sans">
-              <span>Authorized Personnel Only</span>
+              {/* Form */}
+              <form onSubmit={handleUserLogin} className="space-y-5">
+                {/* Email / User ID Field */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Email Address
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={loginUserIdOrEmail}
+                    onChange={(e) => setLoginUserIdOrEmail(e.target.value)}
+                    placeholder="admin@asrgroup.com"
+                    autoComplete="username"
+                    className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-sm font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-800 transition-colors"
+                  />
+                </div>
+
+                {/* Password Field */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showLoginPassword ? "text" : "password"}
+                      required
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      placeholder="Enter password"
+                      autoComplete="current-password"
+                      className="w-full px-4 pr-11 py-3 bg-white border border-slate-300 rounded-xl text-sm font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-800 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginPassword(!showLoginPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
+                      title={showLoginPassword ? "Hide password" : "Show password"}
+                    >
+                      {showLoginPassword ? (
+                        <EyeOff className="h-4.5 w-4.5 stroke-[1.5]" />
+                      ) : (
+                        <Eye className="h-4.5 w-4.5 stroke-[1.5]" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Submit Sign In Button */}
+                <button
+                  type="submit"
+                  disabled={isLoggingIn}
+                  className="w-full mt-2 flex items-center justify-center gap-2 py-3.5 px-4 bg-[#1a2332] hover:bg-[#111827] text-white text-sm font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isLoggingIn ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <span>Signing in...</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="h-4 w-4" />
+                      <span>Sign In</span>
+                    </>
+                  )}
+                </button>
+              </form>
             </div>
           </div>
         </div>

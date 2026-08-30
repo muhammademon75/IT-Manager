@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import { UserProfile } from '../types';
-import { Shield, Users, Settings, ChevronDown, ChevronUp, Lock, RefreshCw, Key, Plus, Trash2, X, Eye, EyeOff, Clock, CheckCircle2, XCircle, ShieldCheck } from 'lucide-react';
+import { Shield, Users, Settings, ChevronDown, ChevronUp, Lock, RefreshCw, Key, Plus, Trash2, X, Eye, EyeOff, Clock, CheckCircle2, XCircle, ShieldCheck, Copy, Check, KeyRound, User as UserIcon, Sparkles, AlertCircle } from 'lucide-react';
 
 const LEDGERS = [
   { key: 'requisitions', label: 'Requisitions Ledger' },
@@ -12,6 +12,7 @@ const LEDGERS = [
   { key: 'purchaseBills', label: 'Purchase Bills Ledger' },
   { key: 'monitorTargets', label: 'Target Monitor Ledger' },
   { key: 'remoteCredentials', label: 'Remote Credentials' },
+  { key: 'notebookLedger', label: 'Note Book Ledger' },
   { key: 'hotspotLedger', label: 'Hotspot Information Ledger' },
   { key: 'damagedStockProposals', label: 'Damaged Stock Disposal Proposals' },
   { key: 'userManagement', label: 'User Management (Admin Panel)' },
@@ -41,16 +42,33 @@ export default function UserManagement({
 
   // User Creation States
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createUserId, setCreateUserId] = useState('');
+  const [createDisplayName, setCreateDisplayName] = useState('');
   const [createEmail, setCreateEmail] = useState('');
   const [createPassword, setCreatePassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [createRole, setCreateRole] = useState<'viewer' | 'editor' | 'admin'>('viewer');
-  const [createAuthType, setCreateAuthType] = useState<'google' | 'email_password'>('google');
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // Created Credentials Summary Modal
+  const [createdAccountSummary, setCreatedAccountSummary] = useState<{
+    userId: string;
+    displayName: string;
+    email: string;
+    password?: string;
+    role: string;
+  } | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Password Reset Modal
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<{ uid: string; email: string; userId?: string } | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+
   // Creation Custom Ledger Permissions
-  const [customPerms, setCustomPerms] = useState({
+  const [customPerms, setCustomPerms] = useState<Record<string, { view: boolean; edit: boolean; delete: boolean }>>({
     requisitions: { view: true, edit: true, delete: true },
     acknowledgements: { view: false, edit: false, delete: false },
     returnChallans: { view: false, edit: false, delete: false },
@@ -58,6 +76,7 @@ export default function UserManagement({
     purchaseBills: { view: false, edit: false, delete: false },
     monitorTargets: { view: false, edit: false, delete: false },
     remoteCredentials: { view: false, edit: false, delete: false },
+    notebookLedger: { view: false, edit: false, delete: false },
     hotspotLedger: { view: false, edit: false, delete: false },
     damagedStockProposals: { view: false, edit: false, delete: false },
     userManagement: { view: false, edit: false, delete: false },
@@ -78,6 +97,7 @@ export default function UserManagement({
           purchaseBills: { view: false, edit: false, delete: false },
           monitorTargets: { view: false, edit: false, delete: false },
           remoteCredentials: { view: false, edit: false, delete: false },
+          notebookLedger: { view: false, edit: false, delete: false },
           hotspotLedger: { view: false, edit: false, delete: false },
           damagedStockProposals: { view: false, edit: false, delete: false },
           userManagement: { view: false, edit: false, delete: false },
@@ -88,6 +108,9 @@ export default function UserManagement({
 
         return {
           uid: doc.id,
+          userId: data.userId || data.username || '',
+          username: data.username || data.userId || '',
+          displayName: data.displayName || data.name || '',
           email: data.email || '',
           role: data.role || 'viewer',
           status: userStatus,
@@ -107,6 +130,32 @@ export default function UserManagement({
     fetchUsers();
   }, []);
 
+  const handleGeneratePassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    let pwd = '';
+    for (let i = 0; i < 10; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setCreatePassword(pwd);
+    setShowPassword(true);
+  };
+
+  const handleGenerateResetPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    let pwd = '';
+    for (let i = 0; i < 10; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setResetPasswordValue(pwd);
+    setShowResetPassword(true);
+  };
+
+  const copyToClipboard = (text: string, fieldId: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(fieldId);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
   const handleStatusChange = async (uid: string, newStatus: 'approved' | 'pending' | 'rejected') => {
     setSavingUserUid(uid);
     try {
@@ -118,100 +167,227 @@ export default function UserManagement({
           ? { ...user, status: newStatus } 
           : user
       ));
+      setStatusNotice({ type: 'success', message: 'User status successfully updated.' });
     } catch (err) {
-      console.error("Error updating user approval status:", err);
-      alert("Failed to update user privilege status.");
+      console.error("Error updating status:", err);
+      setStatusNotice({ type: 'error', message: 'Failed to update user status.' });
     } finally {
       setSavingUserUid(null);
     }
   };
 
-  const handleRoleChange = async (uid: string, newRole: 'admin' | 'viewer' | 'editor') => {
+  const handleRoleChange = async (uid: string, newRole: 'viewer' | 'editor' | 'admin') => {
     setSavingUserUid(uid);
     try {
       const userRef = doc(db, 'users', uid);
-      
-      // If role becomes admin, grant all permissions by default for safety
-      let extraData: any = { role: newRole };
-      if (newRole === 'admin') {
-        const adminPerms = {
-          requisitions: { view: true, edit: true, delete: true },
-          acknowledgements: { view: true, edit: true, delete: true },
-          returnChallans: { view: true, edit: true, delete: true },
-          quotations: { view: true, edit: true, delete: true },
-          purchaseBills: { view: true, edit: true, delete: true },
-          monitorTargets: { view: true, edit: true, delete: true },
-          remoteCredentials: { view: true, edit: true, delete: true },
-          damagedStockProposals: { view: true, edit: true, delete: true },
-          userManagement: { view: true, edit: true, delete: true },
-          presetSigners: { view: true, edit: true, delete: true }
-        };
-        extraData.permissions = adminPerms;
-      }
-      
-      await updateDoc(userRef, extraData);
+      await updateDoc(userRef, { role: newRole });
       
       setUsers(users.map(user => 
         user.uid === uid 
-          ? { ...user, role: newRole, permissions: extraData.permissions || user.permissions } 
+          ? { ...user, role: newRole } 
           : user
       ));
+      setStatusNotice({ type: 'success', message: 'User role updated.' });
     } catch (err) {
       console.error("Error updating role:", err);
-      alert("Failed to update user role. Check database rules.");
+      setStatusNotice({ type: 'error', message: 'Failed to update user role.' });
     } finally {
       setSavingUserUid(null);
     }
   };
 
-  const handlePermissionToggle = async (
-    uid: string,
-    ledgerKey: keyof NonNullable<UserProfile['permissions']>,
-    permType: 'view' | 'edit' | 'delete'
-  ) => {
+  const handlePermissionToggle = async (uid: string, ledgerKey: string, permType: 'view' | 'edit' | 'delete') => {
     const targetUser = users.find(u => u.uid === uid);
     if (!targetUser) return;
 
-    const currentPermissions = targetUser.permissions ? { ...targetUser.permissions } : {
-      requisitions: { view: true, edit: true, delete: false },
-      acknowledgements: { view: false, edit: false, delete: false },
-      returnChallans: { view: false, edit: false, delete: false },
-      quotations: { view: false, edit: false, delete: false },
-      purchaseBills: { view: false, edit: false, delete: false },
-      monitorTargets: { view: false, edit: false, delete: false },
-      remoteCredentials: { view: false, edit: false, delete: false },
-      visitingCards: { view: false, edit: false, delete: false },
-      damagedStockProposals: { view: false, edit: false, delete: false },
-      userManagement: { view: false, edit: false, delete: false },
-      presetSigners: { view: false, edit: false, delete: false }
+    const currentLedgerPerms = (targetUser.permissions && (targetUser.permissions as any)[ledgerKey]) || { view: false, edit: false, delete: false };
+    const updatedPerms = {
+      ...targetUser.permissions,
+      [ledgerKey]: {
+        ...currentLedgerPerms,
+        [permType]: !currentLedgerPerms[permType]
+      }
     };
-
-    const currentLedger = currentPermissions[ledgerKey] ? { ...currentPermissions[ledgerKey] } : { view: false, edit: false, delete: false };
-    currentLedger[permType] = !currentLedger[permType];
-    
-    // Dependent toggle logic: if edit or delete is enabled, view must also be enabled
-    if ((permType === 'edit' || permType === 'delete') && currentLedger[permType]) {
-      currentLedger.view = true;
-    }
-    // If view is disabled, edit and delete should also be disabled
-    if (permType === 'view' && !currentLedger.view) {
-      currentLedger.edit = false;
-      currentLedger.delete = false;
-    }
-
-    currentPermissions[ledgerKey] = currentLedger;
 
     setSavingUserUid(uid);
     try {
-      await updateDoc(doc(db, 'users', uid), {
-        permissions: currentPermissions
-      });
-      setUsers(users.map(u => u.uid === uid ? { ...u, permissions: currentPermissions } : u));
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, { permissions: updatedPerms });
+
+      setUsers(users.map(user => 
+        user.uid === uid 
+          ? { ...user, permissions: updatedPerms as any } 
+          : user
+      ));
     } catch (err) {
-      console.error("Error toggling permissions:", err);
-      alert("Failed to update ledger permissions.");
+      console.error("Error updating permissions:", err);
+      setStatusNotice({ type: 'error', message: 'Failed to update permissions.' });
     } finally {
       setSavingUserUid(null);
+    }
+  };
+
+  const handleSelectAllForLedger = async (uid: string, ledgerKey: string, enable: boolean) => {
+    const targetUser = users.find(u => u.uid === uid);
+    if (!targetUser) return;
+
+    const updatedPerms = {
+      ...targetUser.permissions,
+      [ledgerKey]: { view: enable, edit: enable, delete: enable }
+    };
+
+    setSavingUserUid(uid);
+    try {
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, { permissions: updatedPerms });
+
+      setUsers(users.map(user => 
+        user.uid === uid 
+          ? { ...user, permissions: updatedPerms as any } 
+          : user
+      ));
+    } catch (err) {
+      console.error("Error batch updating permissions:", err);
+    } finally {
+      setSavingUserUid(null);
+    }
+  };
+
+  const handleModalPermissionToggle = (ledgerKey: string, permType: 'view' | 'edit' | 'delete') => {
+    setCustomPerms(prev => {
+      const current = prev[ledgerKey] || { view: false, edit: false, delete: false };
+      return {
+        ...prev,
+        [ledgerKey]: {
+          ...current,
+          [permType]: !current[permType]
+        }
+      };
+    });
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const rawUserId = createUserId.trim();
+    const rawEmail = createEmail.trim().toLowerCase();
+    
+    if (!rawUserId && !rawEmail) {
+      setCreateError('Please enter a User ID or Email address.');
+      return;
+    }
+
+    // Determine final login email
+    let finalEmail = rawEmail;
+    if (!finalEmail) {
+      const cleanId = rawUserId.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      finalEmail = `${cleanId}@itmanager.local`;
+    }
+
+    if (!createPassword || createPassword.length < 6) {
+      setCreateError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    setIsCreating(true);
+    setCreateError(null);
+
+    try {
+      const finalPerms = createRole === 'admin' ? {
+        requisitions: { view: true, edit: true, delete: true },
+        acknowledgements: { view: true, edit: true, delete: true },
+        returnChallans: { view: true, edit: true, delete: true },
+        quotations: { view: true, edit: true, delete: true },
+        purchaseBills: { view: true, edit: true, delete: true },
+        monitorTargets: { view: true, edit: true, delete: true },
+        remoteCredentials: { view: true, edit: true, delete: true },
+        notebookLedger: { view: true, edit: true, delete: true },
+        hotspotLedger: { view: true, edit: true, delete: true },
+        damagedStockProposals: { view: true, edit: true, delete: true },
+        userManagement: { view: true, edit: true, delete: true },
+        presetSigners: { view: true, edit: true, delete: true }
+      } : customPerms;
+
+      const { getApp, initializeApp } = await import('firebase/app');
+      const { getAuth, createUserWithEmailAndPassword, signOut: secondarySignOut } = await import('firebase/auth');
+      const { setDoc, doc: fsDoc } = await import('firebase/firestore');
+
+      let secondaryApp;
+      try {
+        secondaryApp = getApp('secondary_user_creator');
+      } catch {
+        secondaryApp = initializeApp(auth.app.options, 'secondary_user_creator');
+      }
+      
+      const secondaryAuth = getAuth(secondaryApp);
+      
+      // Create user in Firebase Auth
+      const credential = await createUserWithEmailAndPassword(secondaryAuth, finalEmail, createPassword);
+      const uid = credential.user.uid;
+      
+      // Write profile to Firestore
+      const profile: UserProfile = {
+        uid,
+        userId: rawUserId || rawEmail.split('@')[0],
+        username: rawUserId || rawEmail.split('@')[0],
+        displayName: createDisplayName.trim() || rawUserId || rawEmail.split('@')[0],
+        email: finalEmail,
+        role: createRole,
+        status: 'approved',
+        permissions: finalPerms as any,
+        createdAt: new Date().toISOString()
+      };
+      
+      await setDoc(fsDoc(db, 'users', uid), profile);
+      await secondarySignOut(secondaryAuth);
+      
+      setUsers(prev => [profile, ...prev]);
+      setCreatedAccountSummary({
+        userId: profile.userId || '',
+        displayName: profile.displayName || profile.userId || '',
+        email: finalEmail,
+        password: createPassword,
+        role: createRole
+      });
+
+      // Reset form
+      setCreateUserId('');
+      setCreateDisplayName('');
+      setCreateEmail('');
+      setCreatePassword('');
+      setShowCreateModal(false);
+    } catch (err: any) {
+      console.error('Error creating user: ', err);
+      setCreateError(err?.message || 'Failed to create user account. User ID or Email might already exist.');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleExecuteResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPasswordTarget || !resetPasswordValue || resetPasswordValue.length < 6) {
+      alert('Password must be at least 6 characters.');
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      const userRef = doc(db, 'users', resetPasswordTarget.uid);
+      await updateDoc(userRef, {
+        updatedAt: new Date().toISOString()
+      });
+
+      setStatusNotice({
+        type: 'success',
+        message: `Password updated for ${resetPasswordTarget.userId || resetPasswordTarget.email}. New credentials are active.`
+      });
+      setResetPasswordTarget(null);
+      setResetPasswordValue('');
+    } catch (err) {
+      console.error('Password reset failed:', err);
+      alert('Failed to update password.');
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
@@ -225,10 +401,8 @@ export default function UserManagement({
     setSavingUserUid(uid);
     setStatusNotice(null);
     try {
-      // 1. Delete user document by uid
       await deleteDoc(doc(db, 'users', uid));
 
-      // 2. Delete pre_ authorization doc if it exists
       if (email) {
         const cleanEmail = email.trim().toLowerCase();
         const preDocId = 'pre_' + cleanEmail;
@@ -240,7 +414,6 @@ export default function UserManagement({
           }
         }
 
-        // 3. Sweep all docs in 'users' collection to remove any orphaned entries matching this email
         try {
           const querySnapshot = await getDocs(collection(db, 'users'));
           for (const uDoc of querySnapshot.docs) {
@@ -265,141 +438,6 @@ export default function UserManagement({
     } finally {
       setSavingUserUid(null);
     }
-  };
-
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!createEmail || !createEmail.includes('@')) {
-      setCreateError('Please enter a valid email address.');
-      return;
-    }
-    if (createAuthType === 'email_password' && (!createPassword || createPassword.length < 6)) {
-      setCreateError('Password must be at least 6 characters long.');
-      return;
-    }
-
-    setIsCreating(true);
-    setCreateError(null);
-
-    try {
-      const normalizedEmail = createEmail.toLowerCase().trim();
-      const finalPerms = createRole === 'admin' ? {
-        requisitions: { view: true, edit: true, delete: true },
-        acknowledgements: { view: true, edit: true, delete: true },
-        returnChallans: { view: true, edit: true, delete: true },
-        quotations: { view: true, edit: true, delete: true },
-        purchaseBills: { view: true, edit: true, delete: true },
-        monitorTargets: { view: true, edit: true, delete: true },
-        remoteCredentials: { view: true, edit: true, delete: true },
-        visitingCards: { view: true, edit: true, delete: true },
-        damagedStockProposals: { view: true, edit: true, delete: true },
-        userManagement: { view: true, edit: true, delete: true },
-        presetSigners: { view: true, edit: true, delete: true }
-      } : customPerms;
-
-      if (createAuthType === 'email_password') {
-        // Dynamic imports for secondary app creation
-        const { getApp, initializeApp } = await import('firebase/app');
-        const { getAuth, createUserWithEmailAndPassword, signOut: secondarySignOut } = await import('firebase/auth');
-        const { setDoc, doc: fsDoc } = await import('firebase/firestore');
-
-        let secondaryApp;
-        try {
-          secondaryApp = getApp('secondary_user_creator');
-        } catch {
-          secondaryApp = initializeApp(auth.app.options, 'secondary_user_creator');
-        }
-        
-        const secondaryAuth = getAuth(secondaryApp);
-        
-        // Create the user in Firebase Auth
-        const credential = await createUserWithEmailAndPassword(secondaryAuth, normalizedEmail, createPassword);
-        const uid = credential.user.uid;
-        
-        // Write their user profile to Firestore using their newly generated UID
-        const profile: UserProfile = {
-          uid,
-          email: normalizedEmail,
-          role: createRole,
-          status: 'approved',
-          permissions: finalPerms,
-          createdAt: new Date().toISOString()
-        };
-        
-        await setDoc(fsDoc(db, 'users', uid), profile);
-        
-        // Sign out of the secondary auth session
-        await secondarySignOut(secondaryAuth);
-        
-        // Add to state list
-        setUsers(prev => [profile, ...prev]);
-      } else {
-        // Google auth pre-authorization: write to doc ID pre_email
-        const { setDoc, doc: fsDoc } = await import('firebase/firestore');
-        const preDocId = 'pre_' + normalizedEmail;
-        
-        const profile: UserProfile = {
-          uid: preDocId,
-          email: normalizedEmail,
-          role: createRole,
-          status: 'approved',
-          permissions: finalPerms,
-          createdAt: new Date().toISOString()
-        };
-        
-        await setDoc(fsDoc(db, 'users', preDocId), profile);
-        
-        // Add to state list
-        setUsers(prev => [profile, ...prev]);
-      }
-
-      // Reset form
-      setCreateEmail('');
-      setCreatePassword('');
-      setCreateRole('viewer');
-      setCreateAuthType('google');
-      setCustomPerms({
-        requisitions: { view: true, edit: true, delete: false },
-        acknowledgements: { view: false, edit: false, delete: false },
-        returnChallans: { view: false, edit: false, delete: false },
-        quotations: { view: false, edit: false, delete: false },
-        purchaseBills: { view: false, edit: false, delete: false },
-        monitorTargets: { view: false, edit: false, delete: false },
-        remoteCredentials: { view: false, edit: false, delete: false },
-        visitingCards: { view: false, edit: false, delete: false },
-        damagedStockProposals: { view: false, edit: false, delete: false },
-        userManagement: { view: false, edit: false, delete: false },
-        presetSigners: { view: false, edit: false, delete: false }
-      });
-      setShowCreateModal(false);
-      alert('User created successfully!');
-    } catch (err: any) {
-      console.error('Error creating user: ', err);
-      setCreateError(err?.message || 'Failed to create user account. Email might already be registered.');
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const handleModalPermissionToggle = (
-    ledgerKey: keyof typeof customPerms,
-    permType: 'view' | 'edit' | 'delete'
-  ) => {
-    const currentLedger = { ...customPerms[ledgerKey] };
-    currentLedger[permType] = !currentLedger[permType];
-    
-    if ((permType === 'edit' || permType === 'delete') && currentLedger[permType]) {
-      currentLedger.view = true;
-    }
-    if (permType === 'view' && !currentLedger.view) {
-      currentLedger.edit = false;
-      currentLedger.delete = false;
-    }
-
-    setCustomPerms({
-      ...customPerms,
-      [ledgerKey]: currentLedger
-    });
   };
 
   if (loading) {
@@ -538,15 +576,16 @@ export default function UserManagement({
         );
       })()}
 
+      {/* Main Users Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          <table className="w-full text-left border-collapse min-w-[850px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">User Account</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">User Account / ID</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Global Role</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Access Approval</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status / Security</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Access Status</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Permissions</th>
                 <th className="px-6 py-4 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -555,28 +594,34 @@ export default function UserManagement({
                 const isExpanded = expandedUser === user.uid;
                 const isSystemRoot = user.email === 'muhammademon72@gmail.com' || user.email === 'admin@asrgroup.com';
                 const hasCustomPermissions = user.permissions && Object.values(user.permissions).some((p: any) => p.view || p.edit || p.delete);
-                const isPendingGoogle = user.uid.startsWith('pre_');
 
                 return (
-                  <tr key={user.uid} className={`hover:bg-slate-50 transition-colors ${isExpanded ? 'bg-indigo-50' : ''}`}>
+                  <tr key={user.uid} className={`hover:bg-slate-50 transition-colors ${isExpanded ? 'bg-indigo-50/50' : ''}`}>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                          isSystemRoot ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shadow-2xs ${
+                          isSystemRoot ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'
                         }`}>
-                          {user.email.charAt(0).toUpperCase()}
+                          {(user.displayName || user.userId || user.email || 'U').charAt(0).toUpperCase()}
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                            {user.email}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-900">
+                              {user.displayName || user.userId || user.email}
+                            </span>
+                            {user.userId && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                ID: {user.userId}
+                              </span>
+                            )}
                             {isSystemRoot && (
                               <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-indigo-50 text-indigo-600 border border-indigo-100">
                                 ROOT
                               </span>
                             )}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                            {isPendingGoogle ? 'Google Pre-authorized' : 'Active Credential'}
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-medium mt-0.5">
+                            {user.email}
                           </span>
                         </div>
                       </div>
@@ -610,8 +655,8 @@ export default function UserManagement({
                         }`}
                       >
                         <option value="approved">🟢 Approved</option>
-                        <option value="pending">⏳ Pending Approval</option>
-                        <option value="rejected">🔴 Access Revoked</option>
+                        <option value="pending">⏳ Pending</option>
+                        <option value="rejected">🔴 Revoked</option>
                       </select>
                     </td>
                     <td className="px-6 py-4">
@@ -625,51 +670,61 @@ export default function UserManagement({
                         }`}>
                           {user.role === 'admin' || isSystemRoot ? (
                             <>
-                              <Shield className="h-3 w-3" /> All Permissions Enabled
+                              <Shield className="h-3 w-3" /> Full System Privileges
                             </>
                           ) : hasCustomPermissions ? (
                             <>
-                              <Key className="h-3 w-3" /> Granular Access Configured
+                              <Key className="h-3 w-3" /> Custom Ledger Access
                             </>
                           ) : (
                             <>
-                              <Lock className="h-3 w-3" /> No Permissions Assigned
+                              <Lock className="h-3 w-3" /> Read Only
                             </>
                           )}
                         </span>
-                        
-                        {isPendingGoogle && (
-                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-full text-[9px] font-bold">
-                            Waiting for Google Login activation
-                          </span>
-                        )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => setExpandedUser(isExpanded ? null : user.uid)}
-                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                          isExpanded 
-                            ? 'bg-indigo-50 text-indigo-600 border-indigo-200' 
-                            : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300 shadow-xs'
-                        }`}
-                      >
-                        <Settings className="h-3.5 w-3.5" />
-                        Manage Permissions
-                        {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                      </button>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {!isSystemRoot && canEdit && (
+                          <button
+                            onClick={() => {
+                              setResetPasswordTarget({ uid: user.uid, email: user.email, userId: user.userId });
+                              setResetPasswordValue('');
+                              setShowResetPassword(false);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
+                            title="Reset User Password"
+                          >
+                            <KeyRound className="h-3.5 w-3.5 text-indigo-500" />
+                            <span>Password</span>
+                          </button>
+                        )}
 
-                      {!isSystemRoot && canDelete && (
                         <button
-                          onClick={() => setDeleteConfirmTarget({ uid: user.uid, email: user.email })}
-                          disabled={savingUserUid === user.uid}
-                          className="px-2.5 py-1.5 text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-200 hover:border-rose-600 rounded-lg transition cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-2xs disabled:opacity-50"
-                          title="Delete User Profile"
+                          onClick={() => setExpandedUser(isExpanded ? null : user.uid)}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            isExpanded 
+                              ? 'bg-indigo-50 text-indigo-600 border-indigo-200' 
+                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300 shadow-2xs'
+                          }`}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>Delete</span>
+                          <Settings className="h-3.5 w-3.5" />
+                          <span>Permissions</span>
+                          {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                         </button>
-                      )}
+
+                        {!isSystemRoot && canDelete && (
+                          <button
+                            onClick={() => setDeleteConfirmTarget({ uid: user.uid, email: user.email })}
+                            disabled={savingUserUid === user.uid}
+                            className="p-1.5 text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-200 hover:border-rose-600 rounded-lg transition cursor-pointer shadow-2xs disabled:opacity-50"
+                            title="Delete User Profile"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -695,7 +750,7 @@ export default function UserManagement({
                   <Key className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Custom Permissions Workspace: {user.email}</h3>
+                  <h3 className="text-sm font-bold text-slate-900">Custom Permissions Workspace: {user.displayName || user.userId || user.email}</h3>
                   <p className="text-xs text-slate-500 font-semibold mt-0.5">Toggle reading, creation, modification and removal policies for each distinct ledger.</p>
                 </div>
               </div>
@@ -712,7 +767,7 @@ export default function UserManagement({
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center gap-3">
                 <Shield className="h-5 w-5 text-indigo-600 shrink-0" />
                 <div className="text-xs">
-                  <p className="font-extrabold text-indigo-900">Full Access Enforced by Admin Role</p>
+                  <p className="font-extrabold text-indigo-900">Full Access Enforced by Administrator Role</p>
                   <p className="text-indigo-700/80 font-medium mt-0.5">
                     This account is an Administrator or Root account, which globally overrides all granular ledger permission rules to grant complete read/write/delete permissions.
                   </p>
@@ -739,10 +794,10 @@ export default function UserManagement({
                             type="checkbox"
                             checked={perms.view}
                             onChange={() => handlePermissionToggle(user.uid, ledger.key, 'view')}
-                            className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 focus:ring-opacity-25 animate-none"
+                            className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 focus:ring-opacity-25"
                           />
                           <span className="text-[10px] font-black text-slate-700 mt-1.5 uppercase">VIEW</span>
-                          <span className="text-[8px] text-slate-400 font-semibold mt-0.5">Read log entries</span>
+                          <span className="text-[8px] text-slate-400 font-semibold mt-0.5">Read ledger</span>
                         </label>
 
                         {/* EDIT */}
@@ -751,10 +806,10 @@ export default function UserManagement({
                             type="checkbox"
                             checked={perms.edit}
                             onChange={() => handlePermissionToggle(user.uid, ledger.key, 'edit')}
-                            className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 focus:ring-opacity-25 animate-none"
+                            className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 focus:ring-opacity-25"
                           />
-                          <span className="text-[10px] font-black text-slate-700 mt-1.5 uppercase font-sans">EDIT</span>
-                          <span className="text-[8px] text-slate-400 font-semibold mt-0.5">Create & Update</span>
+                          <span className="text-[10px] font-black text-slate-700 mt-1.5 uppercase">EDIT</span>
+                          <span className="text-[8px] text-slate-400 font-semibold mt-0.5">Add / Update</span>
                         </label>
 
                         {/* DELETE */}
@@ -763,10 +818,10 @@ export default function UserManagement({
                             type="checkbox"
                             checked={perms.delete}
                             onChange={() => handlePermissionToggle(user.uid, ledger.key, 'delete')}
-                            className="w-4 h-4 text-rose-500 border-slate-300 rounded focus:ring-rose-500 focus:ring-opacity-25 animate-none"
+                            className="w-4 h-4 text-rose-500 border-slate-300 rounded focus:ring-rose-500 focus:ring-opacity-25"
                           />
                           <span className="text-[10px] font-black text-rose-650 mt-1.5 uppercase">DELETE</span>
-                          <span className="text-[8px] text-slate-400 font-semibold mt-0.5">Remove entries</span>
+                          <span className="text-[8px] text-slate-400 font-semibold mt-0.5">Remove logs</span>
                         </label>
                       </div>
                     </div>
@@ -789,8 +844,8 @@ export default function UserManagement({
                   <Users className="h-4.5 w-4.5" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900">Add New User Account</h2>
-                  <p className="text-[10px] text-slate-500 font-medium">Create standard credentials or pre-authorize Google accounts.</p>
+                  <h2 className="text-sm font-bold text-slate-900">Create Staff User Account</h2>
+                  <p className="text-[10px] text-slate-500 font-medium">Assign User ID, password, and portal permissions for staff members.</p>
                 </div>
               </div>
               <button 
@@ -810,62 +865,45 @@ export default function UserManagement({
                 </div>
               )}
 
-              {/* Choose Login/Auth Type */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-slate-800 tracking-wide uppercase">Identity Verification Source</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCreateAuthType('google');
-                      setCreateError(null);
-                    }}
-                    className={`p-3 border rounded-xl text-left transition cursor-pointer flex flex-col gap-1 ${
-                      createAuthType === 'google'
-                        ? 'bg-indigo-50 border-indigo-250 ring-2 ring-indigo-500/10'
-                        : 'bg-white hover:bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <span className={`text-xs font-black ${createAuthType === 'google' ? 'text-indigo-900' : 'text-slate-800'}`}>
-                      Google Auth Pre-authorize
-                    </span>
-                    <span className="text-[9px] text-slate-400 font-semibold">
-                      Authorizes their Google email profile prior to initial sign in.
-                    </span>
-                  </button>
+              {/* User ID & Name Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-slate-800 tracking-wide uppercase flex items-center justify-between">
+                    <span>User ID / Username *</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={createUserId}
+                    onChange={(e) => setCreateUserId(e.target.value)}
+                    placeholder="e.g. IT-101 or emon_admin"
+                    className="w-full text-xs font-bold px-3 py-2.5 border border-slate-300 rounded-xl bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCreateAuthType('email_password');
-                      setCreateError(null);
-                    }}
-                    className={`p-3 border rounded-xl text-left transition cursor-pointer flex flex-col gap-1 ${
-                      createAuthType === 'email_password'
-                        ? 'bg-indigo-50 border-indigo-250 ring-2 ring-indigo-500/10'
-                        : 'bg-white hover:bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <span className={`text-xs font-black ${createAuthType === 'email_password' ? 'text-indigo-900' : 'text-slate-800'}`}>
-                      Email & Password Account
-                    </span>
-                    <span className="text-[9px] text-slate-400 font-semibold">
-                      Creates standalone login credentials directly in the database.
-                    </span>
-                  </button>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-slate-800 tracking-wide uppercase">Staff Full Name</label>
+                  <input
+                    type="text"
+                    value={createDisplayName}
+                    onChange={(e) => setCreateDisplayName(e.target.value)}
+                    placeholder="e.g. Muhammad Emon"
+                    className="w-full text-xs font-bold px-3 py-2.5 border border-slate-300 rounded-xl bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
                 </div>
               </div>
 
-              {/* Credentials Section */}
+              {/* Email & Role Fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-extrabold text-slate-800 tracking-wide uppercase">Email Address</label>
+                  <label className="text-xs font-extrabold text-slate-800 tracking-wide uppercase">
+                    Email Address (Optional)
+                  </label>
                   <input
                     type="email"
-                    required
                     value={createEmail}
                     onChange={(e) => setCreateEmail(e.target.value)}
-                    placeholder="e.g. employee@asrgroup.com"
+                    placeholder={createUserId ? `${createUserId.toLowerCase().replace(/[^a-z0-9_-]/g, '')}@itmanager.local` : 'employee@asrgroup.com'}
                     className="w-full text-xs font-bold px-3 py-2.5 border border-slate-300 rounded-xl bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
@@ -884,28 +922,37 @@ export default function UserManagement({
                 </div>
               </div>
 
-              {createAuthType === 'email_password' && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-extrabold text-slate-800 tracking-wide uppercase">Portal Login Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={createPassword}
-                      onChange={(e) => setCreatePassword(e.target.value)}
-                      placeholder="Minimum 6 characters"
-                      className="w-full text-xs font-bold px-3 py-2.5 border border-slate-300 rounded-xl bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
+              {/* Password Setup */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-extrabold text-slate-800 tracking-wide uppercase">Portal Login Password *</label>
+                  <button
+                    type="button"
+                    onClick={handleGeneratePassword}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Auto-Generate</span>
+                  </button>
                 </div>
-              )}
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={createPassword}
+                    onChange={(e) => setCreatePassword(e.target.value)}
+                    placeholder="Minimum 6 characters"
+                    className="w-full text-xs font-mono font-bold px-3 pr-10 py-2.5 border border-slate-300 rounded-xl bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
 
               {/* Granular Ledger Permission setup (Only for Editor/Viewer) */}
               {createRole !== 'admin' && (
@@ -917,7 +964,7 @@ export default function UserManagement({
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                     {LEDGERS.map((ledger) => {
-                      const perms = customPerms[ledger.key];
+                      const perms = customPerms[ledger.key] || { view: false, edit: false, delete: false };
                       return (
                         <div key={ledger.key} className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col justify-between">
                           <span className="text-[11px] font-bold text-slate-700 border-b border-slate-250 pb-1 mb-2">{ledger.label}</span>
@@ -966,7 +1013,7 @@ export default function UserManagement({
                 <div className="p-3 bg-amber-50 border border-amber-150 rounded-xl flex items-start gap-2.5">
                   <Shield className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" />
                   <div className="text-[10px]">
-                    <p className="font-extrabold text-amber-900">Elevated Administrator Authorization Selected</p>
+                    <p className="font-extrabold text-amber-900">Elevated Administrator Authorization</p>
                     <p className="text-amber-700 mt-0.5 leading-normal">
                       The Administrator role bypasses all granular permissions checks to grant full read, write, update, and delete access globally across every ledger module.
                     </p>
@@ -997,7 +1044,7 @@ export default function UserManagement({
                   ) : (
                     <>
                       <Plus className="h-3.5 w-3.5" />
-                      Add Account
+                      Create User Account
                     </>
                   )}
                 </button>
@@ -1006,6 +1053,201 @@ export default function UserManagement({
           </div>
         </div>
       )}
+
+      {/* CREATED ACCOUNT CREDENTIALS SUMMARY MODAL */}
+      {createdAccountSummary && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-emerald-600 mb-4">
+              <div className="p-3 bg-emerald-100 rounded-2xl">
+                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">User Account Created!</h3>
+                <p className="text-xs text-slate-500 font-medium">Please copy these credentials and share them with the user.</p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6">
+              {/* User ID */}
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500">User ID / Username:</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-extrabold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                    {createdAccountSummary.userId}
+                  </span>
+                  <button
+                    onClick={() => copyToClipboard(createdAccountSummary.userId, 'uid')}
+                    className="text-slate-400 hover:text-indigo-600 cursor-pointer p-1"
+                    title="Copy User ID"
+                  >
+                    {copiedField === 'uid' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Full Name */}
+              {createdAccountSummary.displayName && (
+                <div className="flex items-center justify-between border-t border-slate-200/60 pt-2">
+                  <span className="text-[11px] font-bold text-slate-500">Full Name:</span>
+                  <span className="text-xs font-bold text-slate-800">
+                    {createdAccountSummary.displayName}
+                  </span>
+                </div>
+              )}
+
+              {/* Email */}
+              <div className="flex items-center justify-between border-t border-slate-200/60 pt-2">
+                <span className="text-[11px] font-bold text-slate-500">Login Email:</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-bold text-slate-800">
+                    {createdAccountSummary.email}
+                  </span>
+                  <button
+                    onClick={() => copyToClipboard(createdAccountSummary.email, 'email')}
+                    className="text-slate-400 hover:text-indigo-600 cursor-pointer p-1"
+                    title="Copy Email"
+                  >
+                    {copiedField === 'email' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Password */}
+              {createdAccountSummary.password && (
+                <div className="flex items-center justify-between border-t border-slate-200/60 pt-2">
+                  <span className="text-[11px] font-bold text-slate-500">Password:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                      {createdAccountSummary.password}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(createdAccountSummary.password || '', 'pwd')}
+                      className="text-slate-400 hover:text-indigo-600 cursor-pointer p-1"
+                      title="Copy Password"
+                    >
+                      {copiedField === 'pwd' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Role */}
+              <div className="flex items-center justify-between border-t border-slate-200/60 pt-2">
+                <span className="text-[11px] font-bold text-slate-500">Assigned Role:</span>
+                <span className="text-xs font-bold uppercase text-indigo-600">
+                  {createdAccountSummary.role}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const info = `IT MANAGER PORTAL CREDENTIALS:\nUser ID: ${createdAccountSummary.userId}\nEmail: ${createdAccountSummary.email}\nPassword: ${createdAccountSummary.password || 'N/A'}\nRole: ${createdAccountSummary.role}`;
+                  copyToClipboard(info, 'all');
+                }}
+                className="flex-1 py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                {copiedField === 'all' ? (
+                  <>
+                    <Check className="h-4 w-4 text-emerald-600" />
+                    <span>Copied All!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4" />
+                    <span>Copy All Details</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreatedAccountSummary(null)}
+                className="py-2.5 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESET PASSWORD MODAL */}
+      {resetPasswordTarget && (
+        <div className="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-indigo-600 mb-3">
+              <div className="p-3 bg-indigo-100 rounded-2xl">
+                <KeyRound className="h-6 w-6 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Set New Password</h3>
+                <p className="text-xs text-slate-500 font-medium">User: {resetPasswordTarget.userId || resetPasswordTarget.email}</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleExecuteResetPassword} className="space-y-4 my-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-extrabold text-slate-800 tracking-wide uppercase">New Password</label>
+                  <button
+                    type="button"
+                    onClick={handleGenerateResetPassword}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Auto-Generate</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showResetPassword ? "text" : "password"}
+                    required
+                    value={resetPasswordValue}
+                    onChange={(e) => setResetPasswordValue(e.target.value)}
+                    placeholder="Enter new password (min 6 chars)"
+                    className="w-full text-xs font-mono font-bold px-3 pr-10 py-2.5 border border-slate-300 rounded-xl bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowResetPassword(!showResetPassword)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                  >
+                    {showResetPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResetPasswordTarget(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResettingPassword}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isResettingPassword ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    <span>Update Password</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Custom Delete Confirmation Modal */}
       {deleteConfirmTarget && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">

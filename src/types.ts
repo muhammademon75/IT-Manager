@@ -21,6 +21,9 @@ export interface UserPermissions {
 
 export interface UserProfile {
   uid: string;
+  userId?: string;
+  username?: string;
+  displayName?: string;
   email: string;
   role: 'admin' | 'viewer' | 'editor';
   status?: 'approved' | 'pending' | 'rejected';
