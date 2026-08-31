@@ -1184,6 +1184,16 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-3">
+                {/* Sign Out Button (In the header to the left of Cloud Sync) */}
+                <button
+                  onClick={handleLogout}
+                  className="h-8 px-3 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border border-rose-200 flex items-center gap-1.5 text-xs font-semibold tracking-tight transition-all cursor-pointer shadow-xs active:scale-95"
+                  title="Sign Out of Portal"
+                >
+                  <LogOut className="h-3.5 w-3.5 text-rose-600" />
+                  <span>Sign Out</span>
+                </button>
+
                 <div className="h-8 px-3 rounded-md bg-indigo-50 flex items-center gap-2 text-[10px] hover:bg-indigo-100 font-bold uppercase tracking-wider text-indigo-700 border border-indigo-100 font-mono transition-colors">
                   <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
                   Cloud Sync Active
