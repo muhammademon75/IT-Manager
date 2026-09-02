@@ -15,6 +15,7 @@ const LEDGERS = [
   { key: 'notebookLedger', label: 'Note Book Ledger' },
   { key: 'hotspotLedger', label: 'Hotspot Information Ledger' },
   { key: 'damagedStockProposals', label: 'Damaged Stock Disposal Proposals' },
+  { key: 'servers', label: 'Server & Host Monitoring' },
   { key: 'userManagement', label: 'User Management (Admin Panel)' },
   { key: 'presetSigners', label: 'Signers Database' }
 ] as const;
@@ -79,6 +80,7 @@ export default function UserManagement({
     notebookLedger: { view: false, edit: false, delete: false },
     hotspotLedger: { view: false, edit: false, delete: false },
     damagedStockProposals: { view: false, edit: false, delete: false },
+    servers: { view: false, edit: false, delete: false },
     userManagement: { view: false, edit: false, delete: false },
     presetSigners: { view: false, edit: false, delete: false }
   });
@@ -100,6 +102,7 @@ export default function UserManagement({
           notebookLedger: { view: false, edit: false, delete: false },
           hotspotLedger: { view: false, edit: false, delete: false },
           damagedStockProposals: { view: false, edit: false, delete: false },
+          servers: { view: false, edit: false, delete: false },
           userManagement: { view: false, edit: false, delete: false },
           presetSigners: { view: false, edit: false, delete: false }
         };

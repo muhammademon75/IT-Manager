@@ -103,6 +103,14 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /servers/{serverId} {
+      allow read, write: if true;
+    }
+
+    match /history/{historyId} {
+      allow read, write: if true;
+    }
+
     match /admins/{adminId} {
       allow read, write: if true;
     }

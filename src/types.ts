@@ -17,6 +17,7 @@ export interface UserPermissions {
   damagedStockProposals?: LedgerPermissions;
   userManagement?: LedgerPermissions;
   presetSigners?: LedgerPermissions;
+  servers?: LedgerPermissions;
 }
 
 export interface UserProfile {
@@ -314,4 +315,25 @@ export interface Credential {
   createdAt?: any;
   updatedAt?: any;
 }
+
+export interface Server {
+  id: string;
+  name: string;
+  address: string;
+  monitoringType: 'web' | 'server' | 'ping';
+  packetSize?: number;
+  status: 'online' | 'offline';
+  lastChecked?: string;
+  avgResponseTime?: number;
+  createdAt?: string;
+}
+
+export interface PingRecord {
+  id?: string;
+  serverId: string;
+  timestamp: string;
+  status: 'online' | 'offline';
+  responseTime: number;
+}
+
 

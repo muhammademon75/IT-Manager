@@ -24,8 +24,9 @@ import DamagedStockProposalForm from './components/DamagedStockProposalForm';
 import { RemoteCredentialLedger } from './components/RemoteCredentialLedger';
 import { NotebookLedger } from './components/NotebookLedger';
 import { StorageCluster } from './components/StorageCluster';
+import ServerMonitoring from './components/ServerMonitoring';
 import { Requisition, Acknowledgement, ReturnChallan, ProductQuotation, CompanyProfile, PurchaseBill, UserProfile, UserPermissions, DamagedStockProposal } from './types';
-import { FolderHeart, LogIn, LogOut, Code, Heart, Monitor, Terminal, FileCheck, Database, FileText, Settings, PanelLeftOpen, PanelLeftClose, RefreshCw, Activity, CreditCard, Wifi, BookOpen, Clock, ShieldAlert, CheckCircle2, XCircle, User as UserIcon, Lock, Eye, EyeOff, ShieldCheck, KeyRound, Sparkles } from 'lucide-react';
+import { FolderHeart, LogIn, LogOut, Code, Heart, Monitor, Terminal, FileCheck, Database, FileText, Settings, PanelLeftOpen, PanelLeftClose, RefreshCw, Activity, CreditCard, Wifi, BookOpen, Clock, ShieldAlert, CheckCircle2, XCircle, User as UserIcon, Lock, Eye, EyeOff, ShieldCheck, KeyRound, Sparkles, Server } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -49,7 +50,7 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   
   // Initial view from URL search param or hash
-  const getViewFromUrl = (): 'dashboard' | 'create_form' | 'view_form' | 'copy_requisition' | 'presets_config' | 'acknowledgements' | 'create_acknowledgement' | 'view_acknowledgement' | 'edit_acknowledgement' | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan' | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation' | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills' | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' => {
+  const getViewFromUrl = (): 'dashboard' | 'create_form' | 'view_form' | 'copy_requisition' | 'presets_config' | 'acknowledgements' | 'create_acknowledgement' | 'view_acknowledgement' | 'edit_acknowledgement' | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan' | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation' | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills' | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'servers' => {
     try {
       const params = new URLSearchParams(window.location.search);
       const viewParam = params.get('view') || window.location.hash.replace('#', '');
@@ -59,7 +60,7 @@ export default function App() {
         'return_challans', 'create_return_challan', 'view_return_challan', 'edit_return_challan',
         'quotations', 'create_quotation', 'edit_quotation', 'view_quotation', 'copy_quotation',
         'company_profile', 'customer_info', 'user_management', 'purchase_bills',
-        'create_purchase_bill', 'view_purchase_bill', 'edit_purchase_bill', 'copy_purchase_bill', 'monitor_targets', 'remote_credentials', 'hotspot_ledger', 'notebook_ledger',
+        'create_purchase_bill', 'view_purchase_bill', 'edit_purchase_bill', 'copy_purchase_bill', 'monitor_targets', 'remote_credentials', 'hotspot_ledger', 'notebook_ledger', 'servers',
         'damaged_stock_proposals', 'create_damaged_stock_proposal', 'edit_damaged_stock_proposal', 'view_damaged_stock_proposal', 'copy_damaged_stock_proposal'
       ];
       if (validViews.includes(viewParam)) {
@@ -78,7 +79,7 @@ export default function App() {
     | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan'
     | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation'
     | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills'
-    | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger'
+    | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'servers'
     | 'damaged_stock_proposals' | 'create_damaged_stock_proposal' | 'edit_damaged_stock_proposal' | 'view_damaged_stock_proposal' | 'copy_damaged_stock_proposal'
   >(getViewFromUrl);
 
@@ -156,6 +157,9 @@ export default function App() {
     if (targetView === 'notebook_ledger') {
       return perms.notebookLedger?.view ?? false;
     }
+    if (targetView === 'servers') {
+      return perms.servers?.view ?? false;
+    }
 
     return false;
   };
@@ -211,6 +215,7 @@ export default function App() {
             hotspotLedger: { view: false, edit: false, delete: false },
             notebookLedger: { view: false, edit: false, delete: false },
             damagedStockProposals: { view: false, edit: false, delete: false },
+            servers: { view: false, edit: false, delete: false },
             userManagement: { view: isRootAdmin, edit: isRootAdmin, delete: isRootAdmin },
             presetSigners: { view: false, edit: false, delete: false }
           };
@@ -253,6 +258,7 @@ export default function App() {
                 hotspotLedger: { view: true, edit: true, delete: true },
                 notebookLedger: { view: true, edit: true, delete: true },
                 damagedStockProposals: { view: true, edit: true, delete: true },
+                servers: { view: true, edit: true, delete: true },
                 userManagement: { view: true, edit: true, delete: true },
                 presetSigners: { view: true, edit: true, delete: true }
               } : defaultPerms,
@@ -452,6 +458,7 @@ export default function App() {
               hotspotLedger: { view: true, edit: true, delete: true },
               notebookLedger: { view: true, edit: true, delete: true },
               damagedStockProposals: { view: true, edit: true, delete: true },
+              servers: { view: true, edit: true, delete: true },
               userManagement: { view: true, edit: true, delete: true },
               presetSigners: { view: true, edit: true, delete: true }
             },
@@ -503,6 +510,7 @@ export default function App() {
             hotspotLedger: { view: true, edit: true, delete: true },
             notebookLedger: { view: true, edit: true, delete: true },
             damagedStockProposals: { view: true, edit: true, delete: true },
+            servers: { view: true, edit: true, delete: true },
             userManagement: { view: true, edit: true, delete: true },
             presetSigners: { view: true, edit: true, delete: true }
           },
@@ -939,10 +947,24 @@ export default function App() {
                 </>
               )}
 
-              {(hasViewPermission('monitor_targets') || hasViewPermission('remote_credentials') || hasViewPermission('hotspot_ledger')) && (
+              {(hasViewPermission('monitor_targets') || hasViewPermission('remote_credentials') || hasViewPermission('hotspot_ledger') || hasViewPermission('notebook_ledger') || hasViewPermission('servers') || isAdmin) && (
                 <>
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 pt-4 mb-2">Network & System</div>
                   
+                  {hasViewPermission('servers') && (
+                    <button
+                      onClick={() => setView('servers')}
+                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
+                        view === 'servers'
+                          ? 'bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 font-bold'
+                          : 'text-slate-400 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Server className="h-4 w-4 text-emerald-400 shrink-0" />
+                      Server & Host Monitoring
+                    </button>
+                  )}
+
                   {hasViewPermission('monitor_targets') && (
                     <button
                       onClick={() => setView('monitor_targets')}
@@ -1172,6 +1194,8 @@ export default function App() {
                   <span className="font-bold text-slate-900">Target_Monitor_Ledger</span>
                 ) : view === 'remote_credentials' ? (
                   <span className="font-bold text-slate-900">Remote_Credentials</span>
+                ) : view === 'servers' ? (
+                  <span className="font-bold text-slate-900">Server_&_Host_Monitoring</span>
                 ) : (
                   <>
                     <span className="cursor-pointer hover:text-slate-900 transition-colors" onClick={() => setView('dashboard')}>
@@ -1626,6 +1650,13 @@ export default function App() {
                       currentUser={user}
                       isAdmin={isAdmin}
                       permissions={userProfile?.permissions?.notebookLedger}
+                    />
+                  )}
+                  {view === 'servers' && (
+                    <ServerMonitoring
+                      currentUserUid={user.uid}
+                      isAdmin={isAdmin}
+                      permissions={userProfile?.permissions?.servers}
                     />
                   )}
                 </motion.div>
