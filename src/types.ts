@@ -321,6 +321,7 @@ export interface Server {
   name: string;
   address: string;
   monitoringType: 'web' | 'server' | 'ping';
+  port?: number;
   packetSize?: number;
   status: 'online' | 'offline';
   lastChecked?: string;

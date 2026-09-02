@@ -414,47 +414,64 @@ export default function MonitorTargetLedger({
     address: string, 
     id: string
   ): Promise<{ active: boolean; latency: number; error?: string }> => {
-    const startTime = performance.now();
-    let isSuccess = false;
-    let latencyMs = 0;
+    const cleanAddr = address ? address.trim() : "";
+    if (!cleanAddr) {
+      return { active: false, latency: 0, error: "Empty address" };
+    }
 
     try {
-      if (type === 'web') {
-        const fullAddress = address.startsWith('http') ? address : `https://${address}`;
-        // Attempt fetch HEAD request or simulated ping with fallbacks
+      // 1. Primary: Real server-side ICMP / TCP / DNS / HTTP probe
+      const res = await fetch('/api/ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: cleanAddr,
+          type: type === 'web' ? 'web' : 'ip',
+          timeoutMs: 3000
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const isOnline = data.status === 'online' && data.active === true;
+        return {
+          active: isOnline,
+          latency: isOnline ? Math.max(1, Number(data.latency) || 1) : 0,
+          error: isOnline ? undefined : (data.error || 'Host unreachable')
+        };
+      }
+    } catch (apiErr) {
+      console.warn('API ping failed, using direct client probe:', apiErr);
+    }
+
+    // 2. Strict client-side fallback (Never fake online for dead hosts!)
+    const startTime = performance.now();
+    try {
+      if (type === 'web' || cleanAddr.startsWith('http')) {
+        const fullAddress = cleanAddr.startsWith('http') ? cleanAddr : `https://${cleanAddr}`;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
         
-        try {
-          await fetch(fullAddress, { method: 'HEAD', mode: 'no-cors', signal: controller.signal });
-          clearTimeout(timeoutId);
-          const endTime = performance.now();
-          latencyMs = Math.round(endTime - startTime);
-          isSuccess = true;
-        } catch {
-          clearTimeout(timeoutId);
-          // If no-cors fetch fails due to network/cors, simulate realistic latency if reachable
-          isSuccess = Math.random() > 0.05;
-          latencyMs = isSuccess ? Math.floor(Math.random() * 35) + 15 : 0;
-        }
-      } else {
-        // IP Ping simulation (calibrated for BDIX 1-15ms, Singapore Transit 35-55ms, and Global 40-90ms)
-        const isSingapore = address.includes("103.246.") || address.includes("203.116.") || id.toLowerCase().includes("sg");
-        isSuccess = Math.random() > 0.02;
-        if (isSingapore) {
-          latencyMs = isSuccess ? Math.floor(Math.random() * 15) + 38 : 0; // 38-53ms Singapore latency
-        } else {
-          latencyMs = isSuccess ? Math.floor(Math.random() * 25) + 10 : 0;
-        }
+        await fetch(fullAddress, { method: 'HEAD', mode: 'no-cors', signal: controller.signal });
+        clearTimeout(timeoutId);
+        const endTime = performance.now();
+        return {
+          active: true,
+          latency: Math.max(1, Math.round(endTime - startTime))
+        };
       }
-    } catch {
-      isSuccess = false;
-      latencyMs = 0;
+    } catch (err: any) {
+      return {
+        active: false,
+        latency: 0,
+        error: 'Network connection failed'
+      };
     }
 
     return {
-      active: isSuccess,
-      latency: latencyMs
+      active: false,
+      latency: 0,
+      error: 'Host unreachable'
     };
   };
 
@@ -489,9 +506,69 @@ export default function MonitorTargetLedger({
   const scanAllTargets = async () => {
     setIsRefreshing(true);
     const currentList = targetsRef.current;
+    if (currentList.length === 0) {
+      setIsRefreshing(false);
+      return;
+    }
+
+    // Mark all as retesting
+    const retestMap: Record<string, boolean> = {};
+    currentList.forEach((t) => { retestMap[t.id] = true; });
+    setRetestingTargets(retestMap);
+
+    try {
+      // 1. Try fast batch ping
+      const batchRes = await fetch('/api/ping-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: currentList.map((t) => ({
+            id: t.id,
+            address: t.address,
+            type: t.type === 'web' ? 'web' : 'ip',
+            timeoutMs: 3000
+          }))
+        })
+      });
+
+      if (batchRes.ok) {
+        const batchData = await batchRes.json();
+        const resultsMap = new Map<string, any>();
+        if (Array.isArray(batchData.results)) {
+          batchData.results.forEach((r: any) => resultsMap.set(r.id, r));
+        }
+
+        setTargets((prevList) =>
+          prevList.map((t) => {
+            const r = resultsMap.get(t.id);
+            const isOnline = r ? (r.status === 'online' && r.active === true) : false;
+            const latency = isOnline ? Math.max(1, Number(r.latency) || 1) : 0;
+            const updatedHistory = [...(t.history || []), isOnline ? latency : 0].slice(-10);
+            const didLose = !isOnline;
+
+            return {
+              ...t,
+              active: isOnline,
+              latency: isOnline ? latency : 0,
+              history: updatedHistory,
+              totalPings: t.totalPings + 1,
+              lossCount: t.lossCount + (didLose ? 1 : 0),
+              error: isOnline ? undefined : (r?.error || 'Host unreachable')
+            };
+          })
+        );
+
+        setRetestingTargets({});
+        setIsRefreshing(false);
+        return;
+      }
+    } catch (e) {
+      console.warn('Batch scan failed, fallback to individual ping:', e);
+    }
+
+    // Individual scan fallback
     await Promise.all(
       currentList.map(async (target) => {
-        setRetestingTargets((prev) => ({ ...prev, [target.id]: true }));
         const result = await clientLocalPingTarget(target.type, target.address, target.id);
         
         setTargets((prevList) =>

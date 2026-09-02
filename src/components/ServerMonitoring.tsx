@@ -18,6 +18,8 @@ import {
   Sliders,
   Filter,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   Zap,
   Shield,
   Layers,
@@ -27,7 +29,9 @@ import {
   TrendingUp,
   Cpu,
   Wifi,
-  ExternalLink
+  ExternalLink,
+  LayoutGrid,
+  Table as TableIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -68,7 +72,9 @@ export default function ServerMonitoring({
   const [activeTab, setActiveTab] = useState<'all' | 'online' | 'offline'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'web' | 'server' | 'ping'>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+  const [sortField, setSortField] = useState<'name' | 'address' | 'status' | 'avgResponseTime' | 'lastChecked'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Ping Operation States
   const [pingingServerId, setPingingServerId] = useState<string | null>(null);
@@ -94,9 +100,9 @@ export default function ServerMonitoring({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Feedback Notification
-  const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
 
-  const showNotification = (type: 'success' | 'error', message: string) => {
+  const showNotification = (type: 'success' | 'error' | 'warning', message: string) => {
     setNotice({ type, message });
     setTimeout(() => setNotice(null), 3500);
   };
@@ -184,68 +190,61 @@ export default function ServerMonitoring({
     };
   }, [autoRefresh, refreshIntervalSec, servers]);
 
-  // Actual Ping Engine
-  const executePing = async (server: Server): Promise<{ status: 'online' | 'offline'; responseTime: number }> => {
-    const startTime = performance.now();
-    let isOnline = false;
-    let responseTime = 0;
-
+  // Actual Real Ping Engine (ICMP, TCP, DNS, HTTP)
+  const executePing = async (server: Server): Promise<{ status: 'online' | 'offline'; responseTime: number; method?: string }> => {
     const cleanAddress = server.address.trim();
+    if (!cleanAddress) {
+      return { status: 'offline', responseTime: 0 };
+    }
 
+    try {
+      // Real backend ping endpoint
+      const res = await fetch('/api/ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: cleanAddress,
+          type: server.monitoringType === 'web' ? 'web' : 'ip',
+          port: server.port,
+          timeoutMs: 3000
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const isOnline = data.status === 'online' && data.active === true;
+        return {
+          status: isOnline ? 'online' : 'offline',
+          responseTime: isOnline ? Math.max(1, Number(data.latency) || 1) : 0,
+          method: data.method
+        };
+      }
+    } catch (apiErr) {
+      console.warn('API ping fallback to client probe:', apiErr);
+    }
+
+    // Strict client-side fallback (offline if unreachable)
+    const startTime = performance.now();
     try {
       if (server.monitoringType === 'web' || cleanAddress.startsWith('http://') || cleanAddress.startsWith('https://')) {
         const targetUrl = cleanAddress.startsWith('http') ? cleanAddress : `https://${cleanAddress}`;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-        try {
-          await fetch(targetUrl, {
-            method: 'HEAD',
-            mode: 'no-cors',
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-          const endTime = performance.now();
-          responseTime = Math.round(endTime - startTime);
-          isOnline = true;
-        } catch (fetchErr) {
-          clearTimeout(timeoutId);
-          // If aborted or failed, test image load as fallback probe
-          const imgProbeStart = performance.now();
-          await new Promise<void>((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve();
-            img.onerror = () => resolve(); // Even error means host responded
-            img.src = `${targetUrl}/favicon.ico?_t=${Date.now()}`;
-            setTimeout(() => resolve(), 3500);
-          });
-          const imgProbeEnd = performance.now();
-          responseTime = Math.max(8, Math.round(imgProbeEnd - imgProbeStart));
-          isOnline = responseTime < 3400;
-        }
-      } else {
-        // Ping / Server protocol simulation calibrated with packet size & physical gateway transit
-        const baseLatency = cleanAddress.startsWith('192.168.') || cleanAddress.startsWith('10.') || cleanAddress.startsWith('172.')
-          ? 2 + Math.random() * 4
-          : cleanAddress.includes('8.8.8.8') || cleanAddress.includes('1.1.1.1')
-          ? 12 + Math.random() * 15
-          : 25 + Math.random() * 35;
-
-        // Packet size weight: additional bytes add realistic sub-millisecond serialization
-        const packetWeight = ((server.packetSize ?? 64) / 64) * 1.5;
-        responseTime = Math.round(baseLatency + packetWeight);
-        isOnline = true;
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        await fetch(targetUrl, {
+          method: 'HEAD',
+          mode: 'no-cors',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        const latency = Math.max(1, Math.round(performance.now() - startTime));
+        return { status: 'online', responseTime: latency, method: 'http' };
       }
-    } catch (e) {
-      isOnline = false;
-      responseTime = 0;
+    } catch {
+      // Truly offline - never fake online!
+      return { status: 'offline', responseTime: 0 };
     }
 
-    if (!isOnline) {
-      responseTime = 0;
-    }
-
-    return { status: isOnline ? 'online' : 'offline', responseTime };
+    return { status: 'offline', responseTime: 0 };
   };
 
   const handleSinglePing = async (server: Server) => {
@@ -274,10 +273,14 @@ export default function ServerMonitoring({
       await updateDoc(serverRef, {
         status: result.status,
         lastChecked: nowIso,
-        avgResponseTime: result.status === 'online' ? newAvg : server.avgResponseTime || 0
+        avgResponseTime: result.status === 'online' ? newAvg : 0
       });
 
-      showNotification('success', `Pinged ${server.name}: ${result.status.toUpperCase()} (${result.responseTime}ms)`);
+      if (result.status === 'online') {
+        showNotification('success', `Pinged ${server.name}: ONLINE (${result.responseTime}ms) via ${result.method || 'Real Ping'}`);
+      } else {
+        showNotification('error', `Pinged ${server.name}: OFFLINE (Host unreachable / timed out)`);
+      }
     } catch (err) {
       console.error('Single ping failed:', err);
       showNotification('error', 'Ping test encountered an error.');
@@ -293,6 +296,70 @@ export default function ServerMonitoring({
     let onlineCount = 0;
     const nowIso = new Date().toISOString();
 
+    // Fast batch ping using /api/ping-batch
+    try {
+      const batchRes = await fetch('/api/ping-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: servers.map((s) => ({
+            id: s.id,
+            address: s.address,
+            type: s.monitoringType === 'web' ? 'web' : 'ip',
+            port: s.port,
+            timeoutMs: 3000
+          }))
+        })
+      });
+
+      if (batchRes.ok) {
+        const batchData = await batchRes.json();
+        const resultsMap = new Map<string, any>();
+        if (Array.isArray(batchData.results)) {
+          batchData.results.forEach((r: any) => resultsMap.set(r.id, r));
+        }
+
+        for (const s of servers) {
+          const r = resultsMap.get(s.id);
+          const isOnline = r ? (r.status === 'online' && r.active === true) : false;
+          const respTime = isOnline ? Math.max(1, Number(r.latency) || 1) : 0;
+          const status = isOnline ? 'online' : 'offline';
+
+          if (isOnline) onlineCount++;
+
+          // Add history record
+          await addDoc(collection(db, 'history'), {
+            serverId: s.id,
+            timestamp: nowIso,
+            status,
+            responseTime: respTime
+          });
+
+          const newAvg = s.avgResponseTime && s.avgResponseTime > 0
+            ? Math.round((s.avgResponseTime * 0.7) + (respTime * 0.3))
+            : respTime;
+
+          await updateDoc(doc(db, 'servers', s.id), {
+            status,
+            lastChecked: nowIso,
+            avgResponseTime: isOnline ? newAvg : 0
+          });
+        }
+
+        setIsPingingAll(false);
+        if (manualNotice) {
+          showNotification(
+            onlineCount > 0 ? 'success' : 'warning',
+            `Ping test finished: ${onlineCount}/${servers.length} servers ONLINE, ${servers.length - onlineCount} OFFLINE.`
+          );
+        }
+        return;
+      }
+    } catch (batchErr) {
+      console.warn('Batch ping failed, falling back to sequential ping:', batchErr);
+    }
+
+    // Sequential fallback
     for (const s of servers) {
       try {
         const result = await executePing(s);
@@ -314,7 +381,7 @@ export default function ServerMonitoring({
         await updateDoc(doc(db, 'servers', s.id), {
           status: result.status,
           lastChecked: nowIso,
-          avgResponseTime: result.status === 'online' ? newAvg : s.avgResponseTime || 0
+          avgResponseTime: result.status === 'online' ? newAvg : 0
         });
       } catch (e) {
         console.warn(`Ping failed for ${s.name}:`, e);
@@ -520,7 +587,17 @@ export default function ServerMonitoring({
     e.target.value = '';
   };
 
-  // Filtered List
+  // Sorting Helper
+  const handleSort = (field: 'name' | 'address' | 'status' | 'avgResponseTime' | 'lastChecked') => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Filtered & Sorted List
   const filteredServers = servers.filter((s) => {
     if (activeTab === 'online' && s.status !== 'online') return false;
     if (activeTab === 'offline' && s.status !== 'offline') return false;
@@ -535,6 +612,28 @@ export default function ServerMonitoring({
       );
     }
     return true;
+  });
+
+  const sortedAndFilteredServers = [...filteredServers].sort((a, b) => {
+    let comp = 0;
+    if (sortField === 'name') {
+      comp = a.name.localeCompare(b.name);
+    } else if (sortField === 'address') {
+      comp = a.address.localeCompare(b.address);
+    } else if (sortField === 'status') {
+      const aVal = a.status === 'online' ? 1 : 0;
+      const bVal = b.status === 'online' ? 1 : 0;
+      comp = bVal - aVal;
+    } else if (sortField === 'avgResponseTime') {
+      const aVal = a.status === 'online' ? (a.avgResponseTime || 0) : 999999;
+      const bVal = b.status === 'online' ? (b.avgResponseTime || 0) : 999999;
+      comp = aVal - bVal;
+    } else if (sortField === 'lastChecked') {
+      const aVal = a.lastChecked ? new Date(a.lastChecked).getTime() : 0;
+      const bVal = b.lastChecked ? new Date(b.lastChecked).getTime() : 0;
+      comp = bVal - aVal;
+    }
+    return sortDirection === 'asc' ? comp : -comp;
   });
 
   // Global Metrics
@@ -772,8 +871,38 @@ export default function ServerMonitoring({
             </button>
           </div>
 
-          {/* Search & Type Filters */}
+          {/* Search, Type & View Mode Filters */}
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* View Mode Switcher */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewMode === 'table'
+                    ? 'bg-white text-indigo-600 shadow-xs border border-slate-200'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Table View (Recommended)"
+              >
+                <TableIcon className="h-3.5 w-3.5" />
+                <span>Table</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewMode === 'grid'
+                    ? 'bg-white text-indigo-600 shadow-xs border border-slate-200'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Box / Card View"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span>Box</span>
+              </button>
+            </div>
+
             {/* Type Filter */}
             <div className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl">
               <Filter className="h-3.5 w-3.5 text-slate-400" />
@@ -790,7 +919,7 @@ export default function ServerMonitoring({
             </div>
 
             {/* Search Input */}
-            <div className="relative min-w-[220px]">
+            <div className="relative min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
               <input
                 type="text"
@@ -810,7 +939,7 @@ export default function ServerMonitoring({
           <RefreshCw className="h-7 w-7 text-indigo-500 animate-spin mx-auto mb-3" />
           <p className="text-xs font-semibold text-slate-500">Loading Monitored Servers from Firestore...</p>
         </div>
-      ) : filteredServers.length === 0 ? (
+      ) : sortedAndFilteredServers.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs space-y-3">
           <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mx-auto">
             <ServerIcon className="h-6 w-6" />
@@ -833,9 +962,278 @@ export default function ServerMonitoring({
             </button>
           )}
         </div>
+      ) : viewMode === 'table' ? (
+        /* TABLE SYSTEM */
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  <th className="py-3.5 px-4 w-12 text-center font-mono">#</th>
+                  <th
+                    onClick={() => handleSort('name')}
+                    className="py-3.5 px-4 cursor-pointer hover:text-indigo-600 transition select-none"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Server & Host</span>
+                      {sortField === 'name' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 text-indigo-600" /> : <ArrowDown className="h-3 w-3 text-indigo-600" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                      )}
+                    </div>
+                  </th>
+                  <th className="py-3.5 px-4">Type</th>
+                  <th
+                    onClick={() => handleSort('status')}
+                    className="py-3.5 px-4 cursor-pointer hover:text-indigo-600 transition select-none"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Status</span>
+                      {sortField === 'status' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 text-indigo-600" /> : <ArrowDown className="h-3 w-3 text-indigo-600" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('avgResponseTime')}
+                    className="py-3.5 px-4 cursor-pointer hover:text-indigo-600 transition select-none"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Latency (RTT)</span>
+                      {sortField === 'avgResponseTime' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 text-indigo-600" /> : <ArrowDown className="h-3 w-3 text-indigo-600" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                      )}
+                    </div>
+                  </th>
+                  <th className="py-3.5 px-4">Packet Size</th>
+                  <th
+                    onClick={() => handleSort('lastChecked')}
+                    className="py-3.5 px-4 cursor-pointer hover:text-indigo-600 transition select-none"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Last Probe</span>
+                      {sortField === 'lastChecked' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 text-indigo-600" /> : <ArrowDown className="h-3 w-3 text-indigo-600" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-slate-400" />
+                      )}
+                    </div>
+                  </th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs">
+                {sortedAndFilteredServers.map((server, idx) => {
+                  const isOnline = server.status === 'online';
+                  const isCurrentlyPinging = pingingServerId === server.id;
+                  const latency = server.avgResponseTime || 0;
+
+                  return (
+                    <tr
+                      key={server.id}
+                      className={`hover:bg-slate-50/80 transition-colors ${
+                        !isOnline ? 'bg-rose-50/20' : ''
+                      }`}
+                    >
+                      {/* Index */}
+                      <td className="py-3 px-4 text-center font-mono text-[11px] text-slate-400 font-semibold">
+                        {idx + 1}
+                      </td>
+
+                      {/* Server Name & Address */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                              server.monitoringType === 'web'
+                                ? 'bg-indigo-50 text-indigo-600 border border-indigo-200'
+                                : server.monitoringType === 'server'
+                                ? 'bg-blue-50 text-blue-600 border border-blue-200'
+                                : 'bg-cyan-50 text-cyan-600 border border-cyan-200'
+                            }`}
+                          >
+                            {server.monitoringType === 'web' ? (
+                              <Globe className="h-4 w-4" />
+                            ) : server.monitoringType === 'server' ? (
+                              <ServerIcon className="h-4 w-4" />
+                            ) : (
+                              <Radio className="h-4 w-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 text-sm truncate flex items-center gap-2">
+                              <span>{server.name}</span>
+                              {server.port && (
+                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                  :{server.port}
+                                </span>
+                              )}
+                            </div>
+                            <div className="font-mono text-slate-500 text-xs truncate flex items-center gap-1">
+                              <span>{server.address}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Monitoring Type */}
+                      <td className="py-3 px-4">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                          {server.monitoringType}
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider ${
+                            isOnline
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                            }`}
+                          />
+                          {server.status}
+                        </span>
+                      </td>
+
+                      {/* Latency */}
+                      <td className="py-3 px-4">
+                        {isOnline ? (
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`font-mono font-bold text-xs px-2 py-0.5 rounded-lg border ${
+                                latency < 50
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : latency < 120
+                                  ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {latency} ms
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="font-mono text-xs text-rose-500 font-semibold px-2 py-0.5 rounded bg-rose-50 border border-rose-200">
+                            0 ms (Unreachable)
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Packet Size */}
+                      <td className="py-3 px-4 font-mono text-slate-600 font-medium text-xs">
+                        {server.packetSize ?? 64} Bytes
+                      </td>
+
+                      {/* Last Probe */}
+                      <td className="py-3 px-4 text-slate-500 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="h-3 w-3 text-slate-400 shrink-0" />
+                          <span className="font-medium text-slate-700">
+                            {server.lastChecked
+                              ? new Date(server.lastChecked).toLocaleTimeString()
+                              : 'Never'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Action Buttons */}
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleSinglePing(server)}
+                            disabled={isCurrentlyPinging}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 active:scale-95 border border-indigo-200 rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+                            title="Send instant ICMP ping probe"
+                          >
+                            <Zap
+                              className={`h-3.5 w-3.5 ${
+                                isCurrentlyPinging
+                                  ? 'animate-spin text-amber-500'
+                                  : 'text-indigo-600'
+                              }`}
+                            />
+                            <span>{isCurrentlyPinging ? 'Pinging...' : 'Ping'}</span>
+                          </button>
+
+                          <button
+                            onClick={() => setHistoryModalServer(server)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
+                            title="View Ping Logs History"
+                          >
+                            <History className="h-3.5 w-3.5" />
+                          </button>
+
+                          {canEdit && (
+                            <button
+                              onClick={() => openEditModal(server)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 transition cursor-pointer"
+                              title="Edit Server Configuration"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+
+                          {canDelete && (
+                            <button
+                              onClick={() => setDeleteConfirmServer(server)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 transition cursor-pointer"
+                              title="Delete Server"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Table Footer Summary Bar */}
+          <div className="bg-slate-50/90 border-t border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-4 text-slate-600 font-medium">
+              <span>
+                Total: <strong className="text-slate-900 font-mono">{sortedAndFilteredServers.length}</strong> servers
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                Online: <strong className="text-emerald-700 font-mono">{onlineServers}</strong>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                Offline: <strong className="text-rose-700 font-mono">{offlineServers}</strong>
+              </span>
+              <span>
+                Avg Latency: <strong className="text-indigo-600 font-mono">{activeAvgLatency} ms</strong>
+              </span>
+            </div>
+
+            <button
+              onClick={() => runPingAll(true)}
+              disabled={isPingingAll || servers.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3 w-3 ${isPingingAll ? 'animate-spin' : ''}`} />
+              <span>{isPingingAll ? 'Pinging All...' : 'Ping All Now'}</span>
+            </button>
+          </div>
+        </div>
       ) : (
+        /* BOX / CARD SYSTEM */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredServers.map((server) => {
+          {sortedAndFilteredServers.map((server) => {
             const isOnline = server.status === 'online';
             const isCurrentlyPinging = pingingServerId === server.id;
 
