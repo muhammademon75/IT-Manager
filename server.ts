@@ -14,8 +14,9 @@ app.use(express.json());
 
 interface PingOptions {
   address: string;
-  type?: 'ip' | 'web' | 'tcp';
+  type?: 'ip' | 'web' | 'tcp' | 'ping' | 'server';
   port?: number;
+  packetSize?: number;
   timeoutMs?: number;
 }
 
@@ -28,8 +29,8 @@ interface PingResult {
   error?: string;
 }
 
-// Helper: Measure real HTTP/HTTPS latency
-function probeHttp(targetUrl: string, timeoutMs: number = 3000): Promise<PingResult> {
+// Helper: Measure real HTTP/HTTPS latency (supports self-signed SSL and redirects)
+function probeHttp(targetUrl: string, timeoutMs: number = 2500, maxRedirects: number = 2): Promise<PingResult> {
   return new Promise((resolve) => {
     const startTime = performance.now();
     let urlObj: URL;
@@ -55,18 +56,26 @@ function probeHttp(targetUrl: string, timeoutMs: number = 3000): Promise<PingRes
       {
         method: 'HEAD',
         timeout: timeoutMs,
+        rejectUnauthorized: false, // Critical for monitoring internal servers/routers with self-signed SSL
         headers: {
-          'User-Agent': 'NetworkMonitor/1.0 (HealthCheck)'
+          'User-Agent': 'Mozilla/5.0 (Network Health Checker)'
         }
       },
       (res) => {
+        // Follow redirect if 3xx and maxRedirects > 0
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && maxRedirects > 0) {
+          req.destroy();
+          const redirectUrl = new URL(res.headers.location, urlObj.href).href;
+          return resolve(probeHttp(redirectUrl, timeoutMs, maxRedirects - 1));
+        }
+
         const endTime = performance.now();
         const latency = Math.max(1, Math.round(endTime - startTime));
-        const status = (res.statusCode && res.statusCode >= 200 && res.statusCode < 600) ? 'online' : 'offline';
+        const isOnline = Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 600);
         resolve({
-          active: status === 'online',
-          status,
-          latency: status === 'online' ? latency : 0,
+          active: isOnline,
+          status: isOnline ? 'online' : 'offline',
+          latency: isOnline ? latency : 0,
           statusCode: res.statusCode,
           method: 'http'
         });
@@ -86,6 +95,40 @@ function probeHttp(targetUrl: string, timeoutMs: number = 3000): Promise<PingRes
 
     req.on('error', (err: any) => {
       req.destroy();
+      // Try GET fallback if HEAD failed with certain server restrictions
+      if (err.code === 'ECONNRESET' || err.code === 'EPROTO') {
+        const getReq = client.request(
+          urlObj,
+          {
+            method: 'GET',
+            timeout: timeoutMs,
+            rejectUnauthorized: false,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Network Health Checker)',
+              'Range': 'bytes=0-10'
+            }
+          },
+          (getRes) => {
+            const latency = Math.max(1, Math.round(performance.now() - startTime));
+            const isOnline = Boolean(getRes.statusCode && getRes.statusCode >= 200 && getRes.statusCode < 600);
+            resolve({
+              active: isOnline,
+              status: isOnline ? 'online' : 'offline',
+              latency: isOnline ? latency : 0,
+              statusCode: getRes.statusCode,
+              method: 'http'
+            });
+            getReq.destroy();
+          }
+        );
+        getReq.on('error', () => {
+          getReq.destroy();
+          resolve({ active: false, status: 'offline', latency: 0, error: err.message });
+        });
+        getReq.end();
+        return;
+      }
+
       resolve({
         active: false,
         status: 'offline',
@@ -98,33 +141,39 @@ function probeHttp(targetUrl: string, timeoutMs: number = 3000): Promise<PingRes
   });
 }
 
-// Helper: Real ICMP ping using Linux ping utility
-function probeIcmp(host: string, timeoutSec: number = 2): Promise<{ success: boolean; latency: number }> {
+// Helper: Real ICMP ping using Linux ping utility (sends 2 packets with packet-size option)
+function probeIcmp(host: string, timeoutSec: number = 1, packetSize: number = 64): Promise<{ success: boolean; latency: number }> {
   return new Promise((resolve) => {
+    // Linux ping: payload size is total packet size minus 8-byte ICMP header
+    const payloadSize = Math.max(16, Math.min(1472, packetSize - 8));
+    const args = ['-c', '2', '-W', timeoutSec.toString(), '-s', payloadSize.toString(), host];
+
     execFile(
       'ping',
-      ['-c', '1', '-W', timeoutSec.toString(), host],
-      { timeout: (timeoutSec + 1) * 1000 },
-      (error, stdout) => {
-        if (error || !stdout) {
+      args,
+      { timeout: (timeoutSec + 1.5) * 1000 },
+      (_error, stdout) => {
+        if (!stdout) {
           return resolve({ success: false, latency: 0 });
         }
 
-        // Match "time=12.3 ms" or "rtt min/avg/max/mdev = 12.1/12.3/..."
-        const timeMatch = stdout.match(/time[=<]([0-9.]+)\s*ms/i);
-        const rttMatch = stdout.match(/rtt min\/avg\/max\/mdev = [0-9.]+\/([0-9.]+)\//i);
+        // Match "time=12.3 ms" or "rtt min/avg/max/mdev = 12.1/12.3/..." or "round-trip min/avg/max = 12.1/12.3/..."
+        const timeMatches = [...stdout.matchAll(/time[=<]([0-9.]+)\s*ms/gi)];
+        const rttMatch = stdout.match(/(?:rtt|round-trip)\s+(?:min\/avg\/max|min\/avg\/max\/mdev)\s*=\s*[0-9.]+\/([0-9.]+)\//i);
 
-        if (timeMatch && timeMatch[1]) {
-          const lat = parseFloat(timeMatch[1]);
-          return resolve({ success: true, latency: Math.max(1, Math.round(lat)) });
-        } else if (rttMatch && rttMatch[1]) {
+        if (rttMatch && rttMatch[1]) {
           const lat = parseFloat(rttMatch[1]);
           return resolve({ success: true, latency: Math.max(1, Math.round(lat)) });
         }
 
-        // If packets received > 0
-        if (stdout.includes('1 received') || stdout.includes('1 packets received')) {
-          return resolve({ success: true, latency: 15 });
+        if (timeMatches.length > 0 && timeMatches[0][1]) {
+          const lat = parseFloat(timeMatches[0][1]);
+          return resolve({ success: true, latency: Math.max(1, Math.round(lat)) });
+        }
+
+        // Check if any packet was received successfully
+        if (stdout.includes('1 received') || stdout.includes('2 received') || stdout.includes('1 packets received') || stdout.includes('2 packets received')) {
+          return resolve({ success: true, latency: 18 });
         }
 
         return resolve({ success: false, latency: 0 });
@@ -134,7 +183,7 @@ function probeIcmp(host: string, timeoutSec: number = 2): Promise<{ success: boo
 }
 
 // Helper: Real TCP socket connect probe
-function probeTcp(host: string, port: number, timeoutMs: number = 2500): Promise<{ success: boolean; latency: number; error?: string }> {
+function probeTcp(host: string, port: number, timeoutMs: number = 1500): Promise<{ success: boolean; latency: number; error?: string }> {
   return new Promise((resolve) => {
     const startTime = performance.now();
     const socket = new net.Socket();
@@ -154,8 +203,8 @@ function probeTcp(host: string, port: number, timeoutMs: number = 2500): Promise
       if (isSettled) return;
       isSettled = true;
       socket.destroy();
-      // If ECONNREFUSED, the machine is online and actively rejected the port
-      if (err.code === 'ECONNREFUSED') {
+      // ECONNREFUSED or ECONNRESET means the destination host is reachable and running
+      if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') {
         const latency = Math.max(1, Math.round(performance.now() - startTime));
         resolve({ success: true, latency });
       } else {
@@ -172,9 +221,25 @@ function probeTcp(host: string, port: number, timeoutMs: number = 2500): Promise
   });
 }
 
+// Parallel TCP Port Probe
+async function probeTcpParallel(host: string, ports: number[], timeoutMs: number = 1500): Promise<{ success: boolean; latency: number }> {
+  try {
+    const promises = ports.map((p) =>
+      probeTcp(host, p, timeoutMs).then((res) => {
+        if (res.success) return res;
+        throw new Error('Port not reachable');
+      })
+    );
+    const winner = await Promise.any(promises);
+    return { success: true, latency: winner.latency };
+  } catch {
+    return { success: false, latency: 0 };
+  }
+}
+
 // Core unified ping runner
 async function performRealPing(opts: PingOptions): Promise<PingResult> {
-  const { address, type = 'ip', port, timeoutMs = 3000 } = opts;
+  const { address, type = 'ip', port, packetSize = 64, timeoutMs = 2500 } = opts;
   if (!address || typeof address !== 'string' || !address.trim()) {
     return {
       active: false,
@@ -188,19 +253,21 @@ async function performRealPing(opts: PingOptions): Promise<PingResult> {
 
   // 1. If explicit web type or starts with http:// or https://, do HTTP probe
   if (type === 'web' || cleanAddr.startsWith('http://') || cleanAddr.startsWith('https://')) {
-    return await probeHttp(cleanAddr, timeoutMs);
+    return await probeHttp(cleanAddr, Math.min(timeoutMs, 2500));
   }
 
   // 2. Extract host and optional port from address (e.g. "192.168.1.1:8080" or "example.com:443")
   let cleanHost = cleanAddr.replace(/^https?:\/\//i, '').split('/')[0];
   let targetPort = port;
 
-  if (cleanHost.includes(':')) {
+  if (cleanHost.includes(':') && !cleanHost.startsWith('[')) {
     const parts = cleanHost.split(':');
-    cleanHost = parts[0];
-    const parsedPort = parseInt(parts[1], 10);
-    if (!isNaN(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
-      targetPort = parsedPort;
+    if (parts.length === 2) {
+      cleanHost = parts[0];
+      const parsedPort = parseInt(parts[1], 10);
+      if (!isNaN(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
+        targetPort = parsedPort;
+      }
     }
   }
 
@@ -210,7 +277,6 @@ async function performRealPing(opts: PingOptions): Promise<PingResult> {
     try {
       await dns.promises.lookup(cleanHost);
     } catch (dnsErr: any) {
-      // Domain does not exist or cannot resolve -> definitely offline!
       return {
         active: false,
         status: 'offline',
@@ -220,8 +286,8 @@ async function performRealPing(opts: PingOptions): Promise<PingResult> {
     }
   }
 
-  // 4. Try real ICMP ping first
-  const icmpResult = await probeIcmp(cleanHost, Math.min(3, Math.max(1, Math.floor(timeoutMs / 1000))));
+  // 4. Try real ICMP ping first (fast 2 packets)
+  const icmpResult = await probeIcmp(cleanHost, 1, packetSize);
   if (icmpResult.success) {
     return {
       active: true,
@@ -231,21 +297,19 @@ async function performRealPing(opts: PingOptions): Promise<PingResult> {
     };
   }
 
-  // 5. If ICMP didn't respond (could be blocked by firewall or router), test TCP ports
+  // 5. If ICMP didn't respond (firewall/router block), test TCP ports in parallel
   const portsToTest = targetPort
     ? [targetPort]
     : [80, 443, 22, 53, 8080];
 
-  for (const p of portsToTest) {
-    const tcpResult = await probeTcp(cleanHost, p, 1500);
-    if (tcpResult.success) {
-      return {
-        active: true,
-        status: 'online',
-        latency: tcpResult.latency,
-        method: 'tcp'
-      };
-    }
+  const tcpResult = await probeTcpParallel(cleanHost, portsToTest, 1400);
+  if (tcpResult.success) {
+    return {
+      active: true,
+      status: 'online',
+      latency: tcpResult.latency,
+      method: 'tcp'
+    };
   }
 
   // 6. If all probes fail, the target is genuinely offline
@@ -268,9 +332,10 @@ app.all('/api/ping', async (req, res) => {
     const address = (req.method === 'GET' ? req.query.address : req.body.address) as string;
     const type = ((req.method === 'GET' ? req.query.type : req.body.type) as any) || 'ip';
     const port = parseInt(((req.method === 'GET' ? req.query.port : req.body.port) as string) || '0', 10) || undefined;
-    const timeoutMs = parseInt(((req.method === 'GET' ? req.query.timeoutMs : req.body.timeoutMs) as string) || '3000', 10);
+    const packetSize = parseInt(((req.method === 'GET' ? req.query.packetSize : req.body.packetSize) as string) || '64', 10) || 64;
+    const timeoutMs = parseInt(((req.method === 'GET' ? req.query.timeoutMs : req.body.timeoutMs) as string) || '2500', 10);
 
-    const result = await performRealPing({ address, type, port, timeoutMs });
+    const result = await performRealPing({ address, type, port, packetSize, timeoutMs });
     res.json(result);
   } catch (err: any) {
     res.status(500).json({
@@ -296,6 +361,7 @@ app.post('/api/ping-batch', async (req, res) => {
           address: t.address,
           type: t.type || 'ip',
           port: t.port,
+          packetSize: t.packetSize || 64,
           timeoutMs: t.timeoutMs || 2500
         });
         return {

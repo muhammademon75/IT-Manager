@@ -69,6 +69,11 @@ export default function ServerMonitoring({
   // Core Data States
   const [servers, setServers] = useState<Server[]>([]);
   const [loading, setLoading] = useState(true);
+  const serversRef = useRef<Server[]>([]);
+  useEffect(() => {
+    serversRef.current = servers;
+  }, [servers]);
+
   const [activeTab, setActiveTab] = useState<'all' | 'online' | 'offline'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'web' | 'server' | 'ping'>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -94,6 +99,7 @@ export default function ServerMonitoring({
   // Form Fields
   const [formName, setFormName] = useState('');
   const [formAddress, setFormAddress] = useState('');
+  const [formPort, setFormPort] = useState('');
   const [formMonitoringType, setFormMonitoringType] = useState<'web' | 'server' | 'ping'>('ping');
   const [formPacketSize, setFormPacketSize] = useState<number>(64);
   const [formError, setFormError] = useState<string | null>(null);
@@ -119,6 +125,7 @@ export default function ServerMonitoring({
           name: d.data().name || '',
           address: d.data().address || '',
           monitoringType: d.data().monitoringType || 'ping',
+          port: d.data().port || undefined,
           packetSize: d.data().packetSize ?? 64,
           status: d.data().status || 'offline',
           lastChecked: d.data().lastChecked || '',
@@ -174,9 +181,9 @@ export default function ServerMonitoring({
     return () => unsubHistory();
   }, [historyModalServer]);
 
-  // 3. Automated Ping Cycle
+  // 3. Automated Ping Cycle with stable reference
   useEffect(() => {
-    if (!autoRefresh || servers.length === 0) {
+    if (!autoRefresh) {
       if (autoPingTimerRef.current) clearInterval(autoPingTimerRef.current);
       return;
     }
@@ -188,7 +195,7 @@ export default function ServerMonitoring({
     return () => {
       if (autoPingTimerRef.current) clearInterval(autoPingTimerRef.current);
     };
-  }, [autoRefresh, refreshIntervalSec, servers]);
+  }, [autoRefresh, refreshIntervalSec]);
 
   // Actual Real Ping Engine (ICMP, TCP, DNS, HTTP)
   const executePing = async (server: Server): Promise<{ status: 'online' | 'offline'; responseTime: number; method?: string }> => {
@@ -206,7 +213,8 @@ export default function ServerMonitoring({
           address: cleanAddress,
           type: server.monitoringType === 'web' ? 'web' : 'ip',
           port: server.port,
-          timeoutMs: 3000
+          packetSize: server.packetSize ?? 64,
+          timeoutMs: 2500
         })
       });
 
@@ -223,13 +231,13 @@ export default function ServerMonitoring({
       console.warn('API ping fallback to client probe:', apiErr);
     }
 
-    // Strict client-side fallback (offline if unreachable)
+    // Client-side fallback for Web URL checks
     const startTime = performance.now();
     try {
       if (server.monitoringType === 'web' || cleanAddress.startsWith('http://') || cleanAddress.startsWith('https://')) {
         const targetUrl = cleanAddress.startsWith('http') ? cleanAddress : `https://${cleanAddress}`;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
         await fetch(targetUrl, {
           method: 'HEAD',
           mode: 'no-cors',
@@ -240,7 +248,6 @@ export default function ServerMonitoring({
         return { status: 'online', responseTime: latency, method: 'http' };
       }
     } catch {
-      // Truly offline - never fake online!
       return { status: 'offline', responseTime: 0 };
     }
 
@@ -255,32 +262,46 @@ export default function ServerMonitoring({
       const result = await executePing(server);
       const nowIso = new Date().toISOString();
 
-      // 1. Record History Entry in /history
-      const historyRecord: Omit<PingRecord, 'id'> = {
-        serverId: server.id,
-        timestamp: nowIso,
-        status: result.status,
-        responseTime: result.responseTime
-      };
-      await addDoc(collection(db, 'history'), historyRecord);
-
-      // 2. Update Server Document in /servers
       const newAvg = server.avgResponseTime && server.avgResponseTime > 0
         ? Math.round((server.avgResponseTime * 0.7) + (result.responseTime * 0.3))
         : result.responseTime;
 
+      // 1. Immediately update UI state optimistically
+      setServers((prev) =>
+        prev.map((s) =>
+          s.id === server.id
+            ? {
+                ...s,
+                status: result.status,
+                lastChecked: nowIso,
+                avgResponseTime: result.status === 'online' ? newAvg : 0
+              }
+            : s
+        )
+      );
+
+      if (result.status === 'online') {
+        const methodBadge = result.method ? ` via ${result.method.toUpperCase()}` : '';
+        showNotification('success', `Pinged ${server.name}: ONLINE (${result.responseTime}ms)${methodBadge}`);
+      } else {
+        showNotification('error', `Pinged ${server.name}: OFFLINE (Host unreachable / 100% loss)`);
+      }
+
+      // 2. Persist to Firestore asynchronously
       const serverRef = doc(db, 'servers', server.id);
-      await updateDoc(serverRef, {
+      updateDoc(serverRef, {
         status: result.status,
         lastChecked: nowIso,
         avgResponseTime: result.status === 'online' ? newAvg : 0
-      });
+      }).catch((dbErr) => console.warn('Firestore server update warning:', dbErr));
 
-      if (result.status === 'online') {
-        showNotification('success', `Pinged ${server.name}: ONLINE (${result.responseTime}ms) via ${result.method || 'Real Ping'}`);
-      } else {
-        showNotification('error', `Pinged ${server.name}: OFFLINE (Host unreachable / timed out)`);
-      }
+      addDoc(collection(db, 'history'), {
+        serverId: server.id,
+        timestamp: nowIso,
+        status: result.status,
+        responseTime: result.responseTime
+      }).catch((dbErr) => console.warn('Firestore history add warning:', dbErr));
+
     } catch (err) {
       console.error('Single ping failed:', err);
       showNotification('error', 'Ping test encountered an error.');
@@ -290,7 +311,8 @@ export default function ServerMonitoring({
   };
 
   const runPingAll = async (manualNotice = true) => {
-    if (servers.length === 0 || isPingingAll) return;
+    const currentServers = serversRef.current;
+    if (currentServers.length === 0 || isPingingAll) return;
     setIsPingingAll(true);
 
     let onlineCount = 0;
@@ -302,12 +324,13 @@ export default function ServerMonitoring({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          targets: servers.map((s) => ({
+          targets: currentServers.map((s) => ({
             id: s.id,
             address: s.address,
             type: s.monitoringType === 'web' ? 'web' : 'ip',
             port: s.port,
-            timeoutMs: 3000
+            packetSize: s.packetSize ?? 64,
+            timeoutMs: 2500
           }))
         })
       });
@@ -319,40 +342,61 @@ export default function ServerMonitoring({
           batchData.results.forEach((r: any) => resultsMap.set(r.id, r));
         }
 
-        for (const s of servers) {
+        const updatedList: Server[] = [];
+        const rawResults: { id: string; status: 'online' | 'offline'; responseTime: number }[] = [];
+
+        for (const s of currentServers) {
           const r = resultsMap.get(s.id);
           const isOnline = r ? (r.status === 'online' && r.active === true) : false;
           const respTime = isOnline ? Math.max(1, Number(r.latency) || 1) : 0;
-          const status = isOnline ? 'online' : 'offline';
+          const status: 'online' | 'offline' = isOnline ? 'online' : 'offline';
 
           if (isOnline) onlineCount++;
-
-          // Add history record
-          await addDoc(collection(db, 'history'), {
-            serverId: s.id,
-            timestamp: nowIso,
-            status,
-            responseTime: respTime
-          });
 
           const newAvg = s.avgResponseTime && s.avgResponseTime > 0
             ? Math.round((s.avgResponseTime * 0.7) + (respTime * 0.3))
             : respTime;
 
-          await updateDoc(doc(db, 'servers', s.id), {
+          updatedList.push({
+            ...s,
             status,
             lastChecked: nowIso,
             avgResponseTime: isOnline ? newAvg : 0
           });
+
+          rawResults.push({ id: s.id, status, responseTime: respTime });
         }
 
+        // 1. Immediately update UI state!
+        setServers(updatedList);
         setIsPingingAll(false);
+
         if (manualNotice) {
           showNotification(
             onlineCount > 0 ? 'success' : 'warning',
-            `Ping test finished: ${onlineCount}/${servers.length} servers ONLINE, ${servers.length - onlineCount} OFFLINE.`
+            `Ping completed: ${onlineCount}/${currentServers.length} servers ONLINE, ${currentServers.length - onlineCount} OFFLINE.`
           );
         }
+
+        // 2. Persist in parallel to Firestore without blocking the UI
+        Promise.allSettled(
+          rawResults.map(async (item) => {
+            const serverRef = doc(db, 'servers', item.id);
+            const serverItem = updatedList.find((x) => x.id === item.id);
+            await updateDoc(serverRef, {
+              status: item.status,
+              lastChecked: nowIso,
+              avgResponseTime: serverItem?.avgResponseTime ?? 0
+            });
+            await addDoc(collection(db, 'history'), {
+              serverId: item.id,
+              timestamp: nowIso,
+              status: item.status,
+              responseTime: item.responseTime
+            });
+          })
+        ).catch((syncErr) => console.warn('Background Firestore sync warning:', syncErr));
+
         return;
       }
     } catch (batchErr) {
@@ -360,46 +404,58 @@ export default function ServerMonitoring({
     }
 
     // Sequential fallback
-    for (const s of servers) {
+    const fallbackList: Server[] = [];
+    for (const s of currentServers) {
       try {
         const result = await executePing(s);
-        if (result.status === 'online') onlineCount++;
-
-        // Add history record
-        await addDoc(collection(db, 'history'), {
-          serverId: s.id,
-          timestamp: nowIso,
-          status: result.status,
-          responseTime: result.responseTime
-        });
+        const isOnline = result.status === 'online';
+        if (isOnline) onlineCount++;
 
         const newAvg = s.avgResponseTime && s.avgResponseTime > 0
           ? Math.round((s.avgResponseTime * 0.7) + (result.responseTime * 0.3))
           : result.responseTime;
 
-        // Update server
-        await updateDoc(doc(db, 'servers', s.id), {
+        fallbackList.push({
+          ...s,
           status: result.status,
           lastChecked: nowIso,
-          avgResponseTime: result.status === 'online' ? newAvg : 0
+          avgResponseTime: isOnline ? newAvg : 0
         });
+
+        // Fire-and-forget DB update
+        updateDoc(doc(db, 'servers', s.id), {
+          status: result.status,
+          lastChecked: nowIso,
+          avgResponseTime: isOnline ? newAvg : 0
+        }).catch(() => {});
+
+        addDoc(collection(db, 'history'), {
+          serverId: s.id,
+          timestamp: nowIso,
+          status: result.status,
+          responseTime: result.responseTime
+        }).catch(() => {});
       } catch (e) {
         console.warn(`Ping failed for ${s.name}:`, e);
       }
     }
 
+    if (fallbackList.length > 0) {
+      setServers(fallbackList);
+    }
     setIsPingingAll(false);
     if (manualNotice) {
-      showNotification('success', `Ping test finished: ${onlineCount}/${servers.length} servers online.`);
+      showNotification('success', `Ping test finished: ${onlineCount}/${currentServers.length} servers online.`);
     }
   };
 
   // Preset quick fill
-  const applyPreset = (name: string, address: string, type: 'web' | 'server' | 'ping', packetSize = 64) => {
+  const applyPreset = (name: string, address: string, type: 'web' | 'server' | 'ping', packetSize = 64, port = '') => {
     setFormName(name);
     setFormAddress(address);
     setFormMonitoringType(type);
     setFormPacketSize(packetSize);
+    setFormPort(port);
   };
 
   // Open Create Modal
@@ -407,6 +463,7 @@ export default function ServerMonitoring({
     setEditingServer(null);
     setFormName('');
     setFormAddress('');
+    setFormPort('');
     setFormMonitoringType('ping');
     setFormPacketSize(64);
     setFormError(null);
@@ -418,6 +475,7 @@ export default function ServerMonitoring({
     setEditingServer(server);
     setFormName(server.name);
     setFormAddress(server.address);
+    setFormPort(server.port ? server.port.toString() : '');
     setFormMonitoringType(server.monitoringType);
     setFormPacketSize(server.packetSize ?? 64);
     setFormError(null);
@@ -442,6 +500,9 @@ export default function ServerMonitoring({
       return;
     }
 
+    const parsedPort = formPort.trim() ? parseInt(formPort.trim(), 10) : undefined;
+    const validPort = (parsedPort && !isNaN(parsedPort) && parsedPort > 0 && parsedPort <= 65535) ? parsedPort : undefined;
+
     setIsSubmitting(true);
     setFormError(null);
 
@@ -455,19 +516,32 @@ export default function ServerMonitoring({
           name: formName.trim(),
           address: formAddress.trim(),
           monitoringType: formMonitoringType,
-          packetSize: Number(formPacketSize) || 64
+          packetSize: Number(formPacketSize) || 64,
+          port: validPort || null
         });
         showNotification('success', `Updated server "${formName.trim()}"`);
       } else {
+        // Probe right away to get initial real status
+        const initialProbe = await executePing({
+          id: 'temp',
+          name: formName.trim(),
+          address: formAddress.trim(),
+          monitoringType: formMonitoringType,
+          packetSize: Number(formPacketSize) || 64,
+          port: validPort,
+          status: 'offline'
+        });
+
         // Create new server
         const newServerData = {
           name: formName.trim(),
           address: formAddress.trim(),
           monitoringType: formMonitoringType,
           packetSize: Number(formPacketSize) || 64,
-          status: 'online',
+          port: validPort || null,
+          status: initialProbe.status,
           lastChecked: nowIso,
-          avgResponseTime: 18,
+          avgResponseTime: initialProbe.responseTime,
           createdAt: nowIso
         };
 
@@ -477,11 +551,11 @@ export default function ServerMonitoring({
         await addDoc(collection(db, 'history'), {
           serverId: addedDoc.id,
           timestamp: nowIso,
-          status: 'online',
-          responseTime: 18
+          status: initialProbe.status,
+          responseTime: initialProbe.responseTime
         });
 
-        showNotification('success', `Added server "${formName.trim()}"`);
+        showNotification('success', `Added server "${formName.trim()}" (Status: ${initialProbe.status.toUpperCase()})`);
       }
 
       setShowAddModal(false);
@@ -1475,8 +1549,8 @@ export default function ServerMonitoring({
                   />
                 </div>
 
-                {/* Monitoring Type & Packet Size */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* Monitoring Type, Port & Packet Size */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs font-bold text-slate-700 block mb-1">
                       Monitoring Type
@@ -1494,18 +1568,33 @@ export default function ServerMonitoring({
 
                   <div>
                     <label className="text-xs font-bold text-slate-700 block mb-1">
-                      Packet Size (Bytes)
+                      Port <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      placeholder="e.g. 80, 443, 22"
+                      value={formPort}
+                      onChange={(e) => setFormPort(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 font-mono focus:outline-hidden focus:border-indigo-500 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Packet Size
                     </label>
                     <select
                       value={formPacketSize}
                       onChange={(e) => setFormPacketSize(Number(e.target.value))}
                       className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 font-mono font-bold focus:outline-hidden focus:border-indigo-500 bg-white"
                     >
-                      <option value={32}>32 Bytes (Light)</option>
-                      <option value={64}>64 Bytes (Standard)</option>
-                      <option value={128}>128 Bytes (Medium)</option>
-                      <option value={256}>256 Bytes (Heavy)</option>
-                      <option value={512}>512 Bytes (Stress)</option>
+                      <option value={32}>32 Bytes</option>
+                      <option value={64}>64 Bytes (Std)</option>
+                      <option value={128}>128 Bytes</option>
+                      <option value={256}>256 Bytes</option>
+                      <option value={512}>512 Bytes</option>
                     </select>
                   </div>
                 </div>
