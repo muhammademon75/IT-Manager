@@ -326,6 +326,11 @@ export interface Server {
   status: 'online' | 'offline';
   lastChecked?: string;
   avgResponseTime?: number;
+  lastLatency?: number;
+  ttl?: number;
+  packetLoss?: number;
+  method?: string;
+  recentLatencies?: number[];
   createdAt?: string;
 }
 

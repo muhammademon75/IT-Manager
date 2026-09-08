@@ -24,9 +24,12 @@ interface PingResult {
   active: boolean;
   status: 'online' | 'offline';
   latency: number;
+  ttl?: number;
+  packetLoss?: number;
   statusCode?: number;
   method?: string;
   error?: string;
+  rawOutput?: string;
 }
 
 // Helper: Measure real HTTP/HTTPS latency (supports self-signed SSL and redirects)
@@ -141,42 +144,46 @@ function probeHttp(targetUrl: string, timeoutMs: number = 2500, maxRedirects: nu
   });
 }
 
-// Helper: Real ICMP ping using Linux ping utility (sends 2 packets with packet-size option)
-function probeIcmp(host: string, timeoutSec: number = 1, packetSize: number = 64): Promise<{ success: boolean; latency: number }> {
+// Helper: Real ICMP ping using Linux ping utility (blazing-fast 1 packet with TTL and packet loss extraction)
+function probeIcmp(host: string, timeoutSec: number = 1, packetSize: number = 64): Promise<{ success: boolean; latency: number; ttl?: number; loss?: number; rawOutput?: string }> {
   return new Promise((resolve) => {
     // Linux ping: payload size is total packet size minus 8-byte ICMP header
     const payloadSize = Math.max(16, Math.min(1472, packetSize - 8));
-    const args = ['-c', '2', '-W', timeoutSec.toString(), '-s', payloadSize.toString(), host];
+    const args = ['-c', '1', '-W', timeoutSec.toString(), '-s', payloadSize.toString(), host];
 
     execFile(
       'ping',
       args,
-      { timeout: (timeoutSec + 1.5) * 1000 },
+      { timeout: (timeoutSec + 0.8) * 1000 },
       (_error, stdout) => {
         if (!stdout) {
-          return resolve({ success: false, latency: 0 });
+          return resolve({ success: false, latency: 0, loss: 100 });
         }
 
-        // Match "time=12.3 ms" or "rtt min/avg/max/mdev = 12.1/12.3/..." or "round-trip min/avg/max = 12.1/12.3/..."
-        const timeMatches = [...stdout.matchAll(/time[=<]([0-9.]+)\s*ms/gi)];
-        const rttMatch = stdout.match(/(?:rtt|round-trip)\s+(?:min\/avg\/max|min\/avg\/max\/mdev)\s*=\s*[0-9.]+\/([0-9.]+)\//i);
+        const timeMatches = stdout.match(/time[=<]([0-9.]+)\s*ms/i);
+        const ttlMatch = stdout.match(/ttl=([0-9]+)/i);
+        const lossMatch = stdout.match(/([0-9]+)%\s*packet loss/i);
 
-        if (rttMatch && rttMatch[1]) {
-          const lat = parseFloat(rttMatch[1]);
-          return resolve({ success: true, latency: Math.max(1, Math.round(lat)) });
-        }
+        const packetLoss = lossMatch ? parseInt(lossMatch[1], 10) : (timeMatches ? 0 : 100);
+        const ttl = ttlMatch ? parseInt(ttlMatch[1], 10) : undefined;
 
-        if (timeMatches.length > 0 && timeMatches[0][1]) {
-          const lat = parseFloat(timeMatches[0][1]);
-          return resolve({ success: true, latency: Math.max(1, Math.round(lat)) });
+        if (timeMatches && timeMatches[1] && packetLoss < 100) {
+          const lat = parseFloat(timeMatches[1]);
+          return resolve({
+            success: true,
+            latency: Math.max(1, Math.round(lat)),
+            ttl,
+            loss: packetLoss,
+            rawOutput: stdout.trim()
+          });
         }
 
         // Check if any packet was received successfully
-        if (stdout.includes('1 received') || stdout.includes('2 received') || stdout.includes('1 packets received') || stdout.includes('2 packets received')) {
-          return resolve({ success: true, latency: 18 });
+        if (stdout.includes('1 received') || stdout.includes('1 packets received')) {
+          return resolve({ success: true, latency: 18, ttl, loss: 0, rawOutput: stdout.trim() });
         }
 
-        return resolve({ success: false, latency: 0 });
+        return resolve({ success: false, latency: 0, ttl, loss: 100, rawOutput: stdout.trim() });
       }
     );
   });
@@ -286,14 +293,17 @@ async function performRealPing(opts: PingOptions): Promise<PingResult> {
     }
   }
 
-  // 4. Try real ICMP ping first (fast 2 packets)
+  // 4. Try real ICMP ping first (blazing fast 1 packet)
   const icmpResult = await probeIcmp(cleanHost, 1, packetSize);
   if (icmpResult.success) {
     return {
       active: true,
       status: 'online',
       latency: icmpResult.latency,
-      method: 'icmp'
+      ttl: icmpResult.ttl,
+      packetLoss: icmpResult.loss ?? 0,
+      method: 'icmp',
+      rawOutput: icmpResult.rawOutput
     };
   }
 
@@ -302,12 +312,13 @@ async function performRealPing(opts: PingOptions): Promise<PingResult> {
     ? [targetPort]
     : [80, 443, 22, 53, 8080];
 
-  const tcpResult = await probeTcpParallel(cleanHost, portsToTest, 1400);
+  const tcpResult = await probeTcpParallel(cleanHost, portsToTest, 1200);
   if (tcpResult.success) {
     return {
       active: true,
       status: 'online',
       latency: tcpResult.latency,
+      packetLoss: 0,
       method: 'tcp'
     };
   }
@@ -317,6 +328,7 @@ async function performRealPing(opts: PingOptions): Promise<PingResult> {
     active: false,
     status: 'offline',
     latency: 0,
+    packetLoss: 100,
     error: 'Host unreachable or 100% packet loss'
   };
 }
@@ -324,6 +336,69 @@ async function performRealPing(opts: PingOptions): Promise<PingResult> {
 // API Routes
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// Real-Time Streaming Ping (SSE)
+app.get('/api/ping-stream', (req, res) => {
+  const address = req.query.address as string;
+  const packetSize = parseInt((req.query.packetSize as string) || '64', 10) || 64;
+  if (!address || typeof address !== 'string' || !address.trim()) {
+    return res.status(400).json({ error: 'Address required' });
+  }
+
+  const cleanHost = address.trim().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+
+  res.write(`data: ${JSON.stringify({ type: 'start', host: cleanHost, packetSize })}\n\n`);
+
+  let seq = 1;
+  let isClosed = false;
+
+  const runTick = async () => {
+    if (isClosed) return;
+    try {
+      const probe = await probeIcmp(cleanHost, 1, packetSize);
+      if (isClosed) return;
+      res.write(`data: ${JSON.stringify({
+        type: 'packet',
+        seq: seq++,
+        host: cleanHost,
+        packetSize,
+        success: probe.success,
+        latency: probe.latency,
+        ttl: probe.ttl,
+        loss: probe.loss,
+        rawOutput: probe.rawOutput,
+        timestamp: new Date().toISOString()
+      })}\n\n`);
+    } catch (e: any) {
+      if (!isClosed) {
+        res.write(`data: ${JSON.stringify({
+          type: 'packet',
+          seq: seq++,
+          host: cleanHost,
+          success: false,
+          latency: 0,
+          loss: 100,
+          error: e.message
+        })}\n\n`);
+      }
+    }
+  };
+
+  runTick();
+  const pingInterval = setInterval(runTick, 1000);
+
+  req.on('close', () => {
+    isClosed = true;
+    clearInterval(pingInterval);
+  });
 });
 
 // Single Ping API

@@ -31,7 +31,12 @@ import {
   Wifi,
   ExternalLink,
   LayoutGrid,
-  Table as TableIcon
+  Table as TableIcon,
+  Terminal,
+  Copy,
+  Play,
+  Pause,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -85,8 +90,37 @@ export default function ServerMonitoring({
   const [pingingServerId, setPingingServerId] = useState<string | null>(null);
   const [isPingingAll, setIsPingingAll] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [refreshIntervalSec, setRefreshIntervalSec] = useState<number>(30);
+  const [refreshIntervalSec, setRefreshIntervalSec] = useState<number>(5);
+  const [countdown, setCountdown] = useState<number>(5);
   const autoPingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasTriggeredInitialPing = useRef(false);
+
+  // Live seconds ticker to update "Xs ago" in real-time
+  const [secondTick, setSecondTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setSecondTick((t) => t + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Live Terminal Stream Console States
+  const [terminalServer, setTerminalServer] = useState<Server | null>(null);
+  const [terminalLines, setTerminalLines] = useState<{ seq: number; text: string; success: boolean; latency: number; ttl?: number }[]>([]);
+  const [isTerminalStreaming, setIsTerminalStreaming] = useState(true);
+  const [terminalPacketSize, setTerminalPacketSize] = useState<number>(64);
+  const [terminalCopied, setTerminalCopied] = useState(false);
+  const terminalEventSourceRef = useRef<EventSource | null>(null);
+  const terminalBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Format dynamic relative time ago (updating every second)
+  const formatTimeAgo = (isoString?: string) => {
+    if (!isoString) return 'Never';
+    const diffSec = Math.max(0, Math.floor((Date.now() - new Date(isoString).getTime()) / 1000));
+    if (diffSec === 0) return 'Just now';
+    if (diffSec < 60) return `${diffSec}s ago`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    return new Date(isoString).toLocaleTimeString();
+  };
 
   // Modal States
   const [showAddModal, setShowAddModal] = useState(false);
@@ -120,18 +154,26 @@ export default function ServerMonitoring({
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const list: Server[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          name: d.data().name || '',
-          address: d.data().address || '',
-          monitoringType: d.data().monitoringType || 'ping',
-          port: d.data().port || undefined,
-          packetSize: d.data().packetSize ?? 64,
-          status: d.data().status || 'offline',
-          lastChecked: d.data().lastChecked || '',
-          avgResponseTime: d.data().avgResponseTime ?? 0,
-          createdAt: d.data().createdAt || ''
-        }));
+        const list: Server[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            name: data.name || '',
+            address: data.address || '',
+            monitoringType: data.monitoringType || 'ping',
+            port: data.port || undefined,
+            packetSize: data.packetSize ?? 64,
+            status: data.status || 'offline',
+            lastChecked: data.lastChecked || '',
+            avgResponseTime: data.avgResponseTime ?? 0,
+            lastLatency: data.lastLatency ?? data.avgResponseTime ?? 0,
+            ttl: data.ttl,
+            packetLoss: data.packetLoss,
+            method: data.method,
+            recentLatencies: data.recentLatencies || [],
+            createdAt: data.createdAt || ''
+          };
+        });
         setServers(list);
         setLoading(false);
       },
@@ -143,6 +185,76 @@ export default function ServerMonitoring({
 
     return () => unsubscribe();
   }, []);
+
+  // Trigger immediate initial live ping on load
+  useEffect(() => {
+    if (!hasTriggeredInitialPing.current && servers.length > 0 && !loading) {
+      hasTriggeredInitialPing.current = true;
+      runPingAll(false);
+    }
+  }, [servers.length, loading]);
+
+  // Live Terminal Streaming via Server-Sent Events (SSE)
+  useEffect(() => {
+    if (!terminalServer || !isTerminalStreaming) {
+      if (terminalEventSourceRef.current) {
+        terminalEventSourceRef.current.close();
+        terminalEventSourceRef.current = null;
+      }
+      return;
+    }
+
+    const s = terminalServer;
+    const pSize = terminalPacketSize || s.packetSize || 64;
+    const url = `/api/ping-stream?address=${encodeURIComponent(s.address)}&packetSize=${pSize}`;
+    const es = new EventSource(url);
+    terminalEventSourceRef.current = es;
+
+    setTerminalLines((prev) => [
+      ...prev,
+      { seq: 0, text: `--- PING ${s.address} (${pSize} bytes payload) ---`, success: true, latency: 0 }
+    ]);
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'start') {
+          // Started
+        } else if (data.type === 'packet') {
+          const lineText = data.success
+            ? `${data.packetSize} bytes from ${data.host}: icmp_seq=${data.seq} ttl=${data.ttl || 49} time=${data.latency} ms`
+            : `Request timeout for icmp_seq ${data.seq} (100% loss)`;
+
+          setTerminalLines((prev) => [
+            ...prev.slice(-99),
+            {
+              seq: data.seq,
+              text: lineText,
+              success: data.success,
+              latency: data.latency,
+              ttl: data.ttl
+            }
+          ]);
+        }
+      } catch (err) {
+        console.warn('SSE parse error:', err);
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+    };
+
+    return () => {
+      es.close();
+    };
+  }, [terminalServer, isTerminalStreaming, terminalPacketSize]);
+
+  useEffect(() => {
+    if (terminalBottomRef.current) {
+      terminalBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [terminalLines]);
 
   // 2. Fetch History when history modal is opened
   useEffect(() => {
@@ -181,27 +293,41 @@ export default function ServerMonitoring({
     return () => unsubHistory();
   }, [historyModalServer]);
 
-  // 3. Automated Ping Cycle with stable reference
+  // 3. Automated Ping Cycle with stable countdown
   useEffect(() => {
     if (!autoRefresh) {
       if (autoPingTimerRef.current) clearInterval(autoPingTimerRef.current);
       return;
     }
 
+    setCountdown(refreshIntervalSec);
     autoPingTimerRef.current = setInterval(() => {
       runPingAll(false);
+      setCountdown(refreshIntervalSec);
     }, refreshIntervalSec * 1000);
+
+    const countInterval = setInterval(() => {
+      setCountdown((prev) => (prev <= 1 ? refreshIntervalSec : prev - 1));
+    }, 1000);
 
     return () => {
       if (autoPingTimerRef.current) clearInterval(autoPingTimerRef.current);
+      clearInterval(countInterval);
     };
   }, [autoRefresh, refreshIntervalSec]);
 
   // Actual Real Ping Engine (ICMP, TCP, DNS, HTTP)
-  const executePing = async (server: Server): Promise<{ status: 'online' | 'offline'; responseTime: number; method?: string }> => {
+  const executePing = async (server: Server): Promise<{
+    status: 'online' | 'offline';
+    responseTime: number;
+    ttl?: number;
+    packetLoss?: number;
+    method?: string;
+    rawOutput?: string;
+  }> => {
     const cleanAddress = server.address.trim();
     if (!cleanAddress) {
-      return { status: 'offline', responseTime: 0 };
+      return { status: 'offline', responseTime: 0, packetLoss: 100 };
     }
 
     try {
@@ -224,7 +350,10 @@ export default function ServerMonitoring({
         return {
           status: isOnline ? 'online' : 'offline',
           responseTime: isOnline ? Math.max(1, Number(data.latency) || 1) : 0,
-          method: data.method
+          ttl: data.ttl,
+          packetLoss: data.packetLoss ?? (isOnline ? 0 : 100),
+          method: data.method,
+          rawOutput: data.rawOutput
         };
       }
     } catch (apiErr) {
@@ -245,13 +374,13 @@ export default function ServerMonitoring({
         });
         clearTimeout(timeoutId);
         const latency = Math.max(1, Math.round(performance.now() - startTime));
-        return { status: 'online', responseTime: latency, method: 'http' };
+        return { status: 'online', responseTime: latency, packetLoss: 0, method: 'http' };
       }
     } catch {
-      return { status: 'offline', responseTime: 0 };
+      return { status: 'offline', responseTime: 0, packetLoss: 100 };
     }
 
-    return { status: 'offline', responseTime: 0 };
+    return { status: 'offline', responseTime: 0, packetLoss: 100 };
   };
 
   const handleSinglePing = async (server: Server) => {
@@ -262,11 +391,12 @@ export default function ServerMonitoring({
       const result = await executePing(server);
       const nowIso = new Date().toISOString();
 
-      const newAvg = server.avgResponseTime && server.avgResponseTime > 0
-        ? Math.round((server.avgResponseTime * 0.7) + (result.responseTime * 0.3))
-        : result.responseTime;
+      const prevRecent = server.recentLatencies || (server.avgResponseTime ? [server.avgResponseTime] : []);
+      const newRecent = result.status === 'online'
+        ? [...prevRecent.slice(-5), result.responseTime]
+        : [...prevRecent.slice(-5), 0];
 
-      // 1. Immediately update UI state optimistically
+      // 1. Immediately update UI state with real-time latency
       setServers((prev) =>
         prev.map((s) =>
           s.id === server.id
@@ -274,15 +404,21 @@ export default function ServerMonitoring({
                 ...s,
                 status: result.status,
                 lastChecked: nowIso,
-                avgResponseTime: result.status === 'online' ? newAvg : 0
+                lastLatency: result.status === 'online' ? result.responseTime : 0,
+                avgResponseTime: result.status === 'online' ? result.responseTime : 0,
+                ttl: result.ttl,
+                packetLoss: result.packetLoss,
+                method: result.method,
+                recentLatencies: newRecent
               }
             : s
         )
       );
 
       if (result.status === 'online') {
+        const ttlInfo = result.ttl ? ` [TTL: ${result.ttl}]` : '';
         const methodBadge = result.method ? ` via ${result.method.toUpperCase()}` : '';
-        showNotification('success', `Pinged ${server.name}: ONLINE (${result.responseTime}ms)${methodBadge}`);
+        showNotification('success', `Pinged ${server.name}: ONLINE (${result.responseTime}ms)${ttlInfo}${methodBadge}`);
       } else {
         showNotification('error', `Pinged ${server.name}: OFFLINE (Host unreachable / 100% loss)`);
       }
@@ -292,7 +428,11 @@ export default function ServerMonitoring({
       updateDoc(serverRef, {
         status: result.status,
         lastChecked: nowIso,
-        avgResponseTime: result.status === 'online' ? newAvg : 0
+        lastLatency: result.status === 'online' ? result.responseTime : 0,
+        avgResponseTime: result.status === 'online' ? result.responseTime : 0,
+        ttl: result.ttl || null,
+        packetLoss: result.packetLoss ?? (result.status === 'online' ? 0 : 100),
+        method: result.method || 'icmp'
       }).catch((dbErr) => console.warn('Firestore server update warning:', dbErr));
 
       addDoc(collection(db, 'history'), {
@@ -343,7 +483,7 @@ export default function ServerMonitoring({
         }
 
         const updatedList: Server[] = [];
-        const rawResults: { id: string; status: 'online' | 'offline'; responseTime: number }[] = [];
+        const rawResults: { id: string; status: 'online' | 'offline'; responseTime: number; ttl?: number; packetLoss?: number; method?: string }[] = [];
 
         for (const s of currentServers) {
           const r = resultsMap.get(s.id);
@@ -353,18 +493,31 @@ export default function ServerMonitoring({
 
           if (isOnline) onlineCount++;
 
-          const newAvg = s.avgResponseTime && s.avgResponseTime > 0
-            ? Math.round((s.avgResponseTime * 0.7) + (respTime * 0.3))
-            : respTime;
+          const prevRecent = s.recentLatencies || (s.avgResponseTime ? [s.avgResponseTime] : []);
+          const newRecent = isOnline
+            ? [...prevRecent.slice(-5), respTime]
+            : [...prevRecent.slice(-5), 0];
 
           updatedList.push({
             ...s,
             status,
             lastChecked: nowIso,
-            avgResponseTime: isOnline ? newAvg : 0
+            lastLatency: isOnline ? respTime : 0,
+            avgResponseTime: isOnline ? respTime : 0,
+            ttl: r?.ttl,
+            packetLoss: r?.packetLoss ?? (isOnline ? 0 : 100),
+            method: r?.method,
+            recentLatencies: newRecent
           });
 
-          rawResults.push({ id: s.id, status, responseTime: respTime });
+          rawResults.push({
+            id: s.id,
+            status,
+            responseTime: respTime,
+            ttl: r?.ttl,
+            packetLoss: r?.packetLoss ?? (isOnline ? 0 : 100),
+            method: r?.method
+          });
         }
 
         // 1. Immediately update UI state!
@@ -382,11 +535,14 @@ export default function ServerMonitoring({
         Promise.allSettled(
           rawResults.map(async (item) => {
             const serverRef = doc(db, 'servers', item.id);
-            const serverItem = updatedList.find((x) => x.id === item.id);
             await updateDoc(serverRef, {
               status: item.status,
               lastChecked: nowIso,
-              avgResponseTime: serverItem?.avgResponseTime ?? 0
+              lastLatency: item.responseTime,
+              avgResponseTime: item.responseTime,
+              ttl: item.ttl || null,
+              packetLoss: item.packetLoss ?? (item.status === 'online' ? 0 : 100),
+              method: item.method || 'icmp'
             });
             await addDoc(collection(db, 'history'), {
               serverId: item.id,
@@ -411,22 +567,32 @@ export default function ServerMonitoring({
         const isOnline = result.status === 'online';
         if (isOnline) onlineCount++;
 
-        const newAvg = s.avgResponseTime && s.avgResponseTime > 0
-          ? Math.round((s.avgResponseTime * 0.7) + (result.responseTime * 0.3))
-          : result.responseTime;
+        const prevRecent = s.recentLatencies || (s.avgResponseTime ? [s.avgResponseTime] : []);
+        const newRecent = isOnline
+          ? [...prevRecent.slice(-5), result.responseTime]
+          : [...prevRecent.slice(-5), 0];
 
         fallbackList.push({
           ...s,
           status: result.status,
           lastChecked: nowIso,
-          avgResponseTime: isOnline ? newAvg : 0
+          lastLatency: isOnline ? result.responseTime : 0,
+          avgResponseTime: isOnline ? result.responseTime : 0,
+          ttl: result.ttl,
+          packetLoss: result.packetLoss,
+          method: result.method,
+          recentLatencies: newRecent
         });
 
         // Fire-and-forget DB update
         updateDoc(doc(db, 'servers', s.id), {
           status: result.status,
           lastChecked: nowIso,
-          avgResponseTime: isOnline ? newAvg : 0
+          lastLatency: isOnline ? result.responseTime : 0,
+          avgResponseTime: isOnline ? result.responseTime : 0,
+          ttl: result.ttl || null,
+          packetLoss: result.packetLoss ?? (isOnline ? 0 : 100),
+          method: result.method || 'icmp'
         }).catch(() => {});
 
         addDoc(collection(db, 'history'), {
@@ -814,7 +980,7 @@ export default function ServerMonitoring({
 
         {/* Live Auto-Refresh & Calibration Bar */}
         <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4 text-xs">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -824,36 +990,52 @@ export default function ServerMonitoring({
               />
               <span className="text-slate-300 font-medium flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`}></span>
-                Auto Ping Cycle
+                Real-Time Auto Ping
               </span>
             </label>
 
             {autoRefresh && (
-              <div className="flex items-center gap-1.5 text-slate-400 bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-700/50">
-                <Clock className="h-3 w-3 text-indigo-400" />
-                <span className="text-[11px]">Every:</span>
-                <select
-                  value={refreshIntervalSec}
-                  onChange={(e) => setRefreshIntervalSec(Number(e.target.value))}
-                  className="bg-transparent text-indigo-300 font-mono text-[11px] font-bold focus:outline-hidden cursor-pointer"
-                >
-                  <option value={10} className="bg-slate-900 text-white">10s</option>
-                  <option value={30} className="bg-slate-900 text-white">30s</option>
-                  <option value={60} className="bg-slate-900 text-white">60s</option>
-                  <option value={120} className="bg-slate-900 text-white">2m</option>
-                </select>
-              </div>
+              <>
+                <div className="flex items-center gap-1.5 text-slate-400 bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-700/50">
+                  <Clock className="h-3 w-3 text-indigo-400" />
+                  <span className="text-[11px]">Interval:</span>
+                  <select
+                    value={refreshIntervalSec}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setRefreshIntervalSec(val);
+                      setCountdown(val);
+                    }}
+                    className="bg-transparent text-indigo-300 font-mono text-[11px] font-bold focus:outline-hidden cursor-pointer"
+                  >
+                    <option value={3} className="bg-slate-900 text-white">3s (Ultra Live)</option>
+                    <option value={5} className="bg-slate-900 text-white">5s (Live Pulse)</option>
+                    <option value={10} className="bg-slate-900 text-white">10s</option>
+                    <option value={30} className="bg-slate-900 text-white">30s</option>
+                    <option value={60} className="bg-slate-900 text-white">60s</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-950/60 border border-indigo-500/30 text-indigo-300 font-mono text-[11px]">
+                  <Activity className="h-3 w-3 text-indigo-400 animate-pulse" />
+                  <span>Next Probe:</span>
+                  <span className="font-bold text-emerald-400">{countdown}s</span>
+                </div>
+              </>
             )}
           </div>
 
           <div className="flex items-center gap-4 text-slate-400 font-mono text-[11px]">
             <div className="flex items-center gap-1.5">
-              <span className="text-slate-500">Global Cluster:</span>
-              <span className="text-emerald-400 font-bold">ACTIVE</span>
+              <span className="text-slate-500">Live Ping Engine:</span>
+              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                ICMP KERNEL
+              </span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-slate-500">Firestore Replication:</span>
-              <span className="text-indigo-400 font-bold">SYNCED</span>
+              <span className="text-slate-500">Database:</span>
+              <span className="text-indigo-400 font-bold">FIRESTORE SYNCED</span>
             </div>
           </div>
         </div>
@@ -1183,22 +1365,45 @@ export default function ServerMonitoring({
                       {/* Latency */}
                       <td className="py-3 px-4">
                         {isOnline ? (
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`font-mono font-bold text-xs px-2 py-0.5 rounded-lg border ${
-                                latency < 50
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : latency < 120
-                                  ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}
-                            >
-                              {latency} ms
-                            </span>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`font-mono font-bold text-xs px-2 py-0.5 rounded-lg border ${
+                                  latency < 50
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : latency < 120
+                                    ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                                }`}
+                              >
+                                {latency} ms
+                              </span>
+                              {server.ttl && (
+                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200" title={`Time To Live: ${server.ttl}`}>
+                                  TTL:{server.ttl}
+                                </span>
+                              )}
+                              <span className="text-[9px] font-mono font-bold uppercase px-1 py-0.2 rounded bg-indigo-50 text-indigo-600 border border-indigo-200">
+                                {server.method ? server.method.toUpperCase() : 'ICMP'}
+                              </span>
+                            </div>
+                            {/* Live mini jitter dots */}
+                            {server.recentLatencies && server.recentLatencies.length > 1 && (
+                              <div className="flex items-center gap-1 mt-0.5" title={`Recent latency probes: ${server.recentLatencies.join(', ')} ms`}>
+                                {server.recentLatencies.slice(-6).map((lat, lidx) => (
+                                  <span
+                                    key={lidx}
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      lat > 0 ? (lat < 80 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-rose-400'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <span className="font-mono text-xs text-rose-500 font-semibold px-2 py-0.5 rounded bg-rose-50 border border-rose-200">
-                            0 ms (Unreachable)
+                            0 ms (100% loss)
                           </span>
                         )}
                       </td>
@@ -1210,12 +1415,13 @@ export default function ServerMonitoring({
 
                       {/* Last Probe */}
                       <td className="py-3 px-4 text-slate-500 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="h-3 w-3 text-slate-400 shrink-0" />
-                          <span className="font-medium text-slate-700">
-                            {server.lastChecked
-                              ? new Date(server.lastChecked).toLocaleTimeString()
-                              : 'Never'}
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1 font-semibold text-slate-800">
+                            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                            <span>{formatTimeAgo(server.lastChecked)}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {server.lastChecked ? new Date(server.lastChecked).toLocaleTimeString() : 'Never'}
                           </span>
                         </div>
                       </td>
@@ -1223,6 +1429,19 @@ export default function ServerMonitoring({
                       {/* Action Buttons */}
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => {
+                              setTerminalServer(server);
+                              setTerminalLines([]);
+                              setIsTerminalStreaming(true);
+                              setTerminalPacketSize(server.packetSize ?? 64);
+                            }}
+                            className="p-1.5 rounded-lg text-indigo-600 hover:text-white hover:bg-indigo-600 border border-indigo-200 transition cursor-pointer"
+                            title="Open Real-Time Ping Streaming Console"
+                          >
+                            <Terminal className="h-3.5 w-3.5" />
+                          </button>
+
                           <button
                             onClick={() => handleSinglePing(server)}
                             disabled={isCurrentlyPinging}
@@ -1367,9 +1586,16 @@ export default function ServerMonitoring({
                   <div className="grid grid-cols-2 gap-2 my-3 p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-xs">
                     <div>
                       <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Latency (RTT)</span>
-                      <span className="font-mono font-extrabold text-slate-800 text-sm">
-                        {isOnline ? `${server.avgResponseTime || 0} ms` : '0 ms'}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono font-extrabold text-slate-800 text-sm">
+                          {isOnline ? `${server.avgResponseTime || 0} ms` : '0 ms'}
+                        </span>
+                        {isOnline && server.ttl && (
+                          <span className="text-[9px] font-mono text-slate-500 bg-white px-1 py-0.2 rounded border border-slate-200">
+                            TTL:{server.ttl}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Packet Size</span>
@@ -1385,14 +1611,27 @@ export default function ServerMonitoring({
                       <Clock className="h-3 w-3 text-slate-400" />
                       Last probe:
                     </span>
-                    <span className="font-medium text-slate-600">
-                      {server.lastChecked ? new Date(server.lastChecked).toLocaleTimeString() : 'Never'}
+                    <span className="font-medium text-slate-700">
+                      {formatTimeAgo(server.lastChecked)} ({server.lastChecked ? new Date(server.lastChecked).toLocaleTimeString() : 'Never'})
                     </span>
                   </div>
                 </div>
 
                 {/* Footer Controls */}
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => {
+                      setTerminalServer(server);
+                      setTerminalLines([]);
+                      setIsTerminalStreaming(true);
+                      setTerminalPacketSize(server.packetSize ?? 64);
+                    }}
+                    className="p-1.5 rounded-lg text-indigo-600 hover:text-white hover:bg-indigo-600 border border-indigo-200 transition cursor-pointer"
+                    title="Open Live Real-Time Ping Console"
+                  >
+                    <Terminal className="h-3.5 w-3.5" />
+                  </button>
+
                   <button
                     onClick={() => handleSinglePing(server)}
                     disabled={isCurrentlyPinging}
@@ -1720,6 +1959,203 @@ export default function ServerMonitoring({
                   className="px-4 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition cursor-pointer"
                 >
                   Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Live Ping Streaming Terminal Modal */}
+      <AnimatePresence>
+        {terminalServer && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-slate-100 font-sans max-h-[90vh]"
+            >
+              {/* Terminal Window Header */}
+              <div className="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full bg-rose-500/80 inline-block" />
+                    <span className="w-3 h-3 rounded-full bg-amber-500/80 inline-block" />
+                    <span className="w-3 h-3 rounded-full bg-emerald-500/80 inline-block" />
+                  </div>
+                  <div className="h-4 w-px bg-slate-800" />
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-4 w-4 text-indigo-400" />
+                    <span className="font-bold text-sm text-slate-100 tracking-tight">
+                      Live ICMP Ping Stream: {terminalServer.name}
+                    </span>
+                    <span className="font-mono text-xs text-indigo-400 bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-800/60">
+                      {terminalServer.address}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-500/30">
+                    <span className={`w-2 h-2 rounded-full ${isTerminalStreaming ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`} />
+                    {isTerminalStreaming ? 'STREAMING' : 'PAUSED'}
+                  </span>
+                  <button
+                    onClick={() => setTerminalServer(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Terminal Controls & Real-Time Stats Bar */}
+              <div className="px-5 py-2.5 bg-slate-900/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                {/* Stats */}
+                {(() => {
+                  const packets = terminalLines.filter((l) => l.seq > 0);
+                  const received = packets.filter((l) => l.success);
+                  const loss = packets.length > 0 ? Math.round(((packets.length - received.length) / packets.length) * 100) : 0;
+                  const latencies = received.map((r) => r.latency).filter((l) => l > 0);
+                  const minLat = latencies.length > 0 ? Math.min(...latencies) : 0;
+                  const maxLat = latencies.length > 0 ? Math.max(...latencies) : 0;
+                  const avgLat = latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
+                  const lastPacket = packets[packets.length - 1];
+
+                  return (
+                    <div className="flex flex-wrap items-center gap-4 font-mono text-[11px]">
+                      <div>
+                        <span className="text-slate-500">Transmitted: </span>
+                        <strong className="text-slate-200">{packets.length}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Received: </span>
+                        <strong className="text-emerald-400">{received.length}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Loss: </span>
+                        <strong className={loss > 0 ? 'text-rose-400' : 'text-emerald-400'}>{loss}%</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Last RTT: </span>
+                        <strong className="text-indigo-300">{lastPacket?.success ? `${lastPacket.latency} ms` : '—'}</strong>
+                      </div>
+                      {avgLat > 0 && (
+                        <div>
+                          <span className="text-slate-500">Avg: </span>
+                          <strong className="text-cyan-300">{avgLat} ms</strong>
+                          <span className="text-slate-500 text-[10px] ml-1">(min {minLat} / max {maxLat})</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Toolbar buttons */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800 text-[11px]">
+                    <span className="text-slate-500">Bytes:</span>
+                    <select
+                      value={terminalPacketSize}
+                      onChange={(e) => {
+                        const newSize = Number(e.target.value);
+                        setTerminalPacketSize(newSize);
+                        setTerminalLines([]);
+                      }}
+                      className="bg-transparent text-indigo-400 font-mono font-bold focus:outline-hidden cursor-pointer"
+                    >
+                      <option value={32} className="bg-slate-900 text-white">32 B</option>
+                      <option value={64} className="bg-slate-900 text-white">64 B</option>
+                      <option value={128} className="bg-slate-900 text-white">128 B</option>
+                      <option value={512} className="bg-slate-900 text-white">512 B</option>
+                      <option value={1024} className="bg-slate-900 text-white">1024 B</option>
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={() => setIsTerminalStreaming(!isTerminalStreaming)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      isTerminalStreaming
+                        ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40'
+                    }`}
+                  >
+                    {isTerminalStreaming ? (
+                      <>
+                        <Pause className="h-3 w-3" />
+                        <span>Pause</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-3 w-3" />
+                        <span>Resume</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setTerminalLines([])}
+                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition cursor-pointer"
+                    title="Clear terminal window"
+                  >
+                    Clear
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const text = terminalLines.map((l) => l.text).join('\n');
+                      navigator.clipboard.writeText(text);
+                      setTerminalCopied(true);
+                      setTimeout(() => setTerminalCopied(false), 2000);
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition cursor-pointer"
+                    title="Copy terminal output"
+                  >
+                    {terminalCopied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                    <span>{terminalCopied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Monospace Terminal Body */}
+              <div className="bg-slate-950 p-4 font-mono text-xs leading-relaxed overflow-y-auto max-h-80 min-h-60 space-y-1 select-text">
+                <div className="text-slate-500 pb-1">
+                  $ ping -c inf -s {terminalPacketSize} {terminalServer.address}
+                </div>
+                {terminalLines.map((line, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center justify-between ${
+                      line.seq === 0
+                        ? 'text-indigo-400 font-semibold'
+                        : line.success
+                        ? 'text-emerald-400'
+                        : 'text-rose-400 font-semibold'
+                    }`}
+                  >
+                    <span>{line.text}</span>
+                    {line.latency > 0 && (
+                      <span className="text-[10px] text-slate-500 ml-2 shrink-0">
+                        {line.latency < 50 ? 'FAST' : line.latency < 120 ? 'NORMAL' : 'HIGH'}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                <div ref={terminalBottomRef} />
+              </div>
+
+              {/* Terminal Footer */}
+              <div className="px-5 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 shrink-0">
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                  <span>Server-Sent Events (SSE) stream via Linux ICMP Kernel</span>
+                </div>
+                <button
+                  onClick={() => setTerminalServer(null)}
+                  className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition cursor-pointer"
+                >
+                  Close Console
                 </button>
               </div>
             </motion.div>
