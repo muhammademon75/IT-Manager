@@ -675,25 +675,6 @@ export default function App() {
                 </p>
               </div>
 
-              {/* 1-Click Admin Direct Login Banner */}
-              <button
-                type="button"
-                onClick={() => handleDirectAdminLogin('admin@asrgroup.com', 'admin')}
-                className="w-full mb-5 py-3.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-bold text-sm shadow-sm hover:shadow transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.99]"
-              >
-                <ShieldCheck className="h-5 w-5 shrink-0" />
-                <div className="text-left leading-tight">
-                  <div className="font-bold">1-Click Direct Admin Access</div>
-                  <div className="text-[11px] font-normal text-emerald-100">সরাসরি অ্যাডমিন প্যানেলে প্রবেশ করুন (No password needed)</div>
-                </div>
-              </button>
-
-              <div className="relative flex py-2 items-center mb-4">
-                <div className="flex-grow border-t border-slate-200"></div>
-                <span className="flex-shrink mx-3 text-slate-400 text-xs font-semibold uppercase tracking-wider">or sign in with credentials</span>
-                <div className="flex-grow border-t border-slate-200"></div>
-              </div>
-
               {loginError && (
                 <div className="p-3 mb-5 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-xl flex items-start gap-2 animate-in fade-in">
                   <XCircle className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
@@ -730,7 +711,7 @@ export default function App() {
                       required
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
-                      placeholder="Enter password (e.g. admin123)"
+                      placeholder="Enter password"
                       autoComplete="current-password"
                       className="w-full px-4 pr-11 py-3 bg-white border border-slate-300 rounded-xl text-sm font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-800 transition-colors"
                     />
@@ -768,59 +749,6 @@ export default function App() {
                   )}
                 </button>
               </form>
-
-              {/* Quick Admin Helper / Credentials Recovery */}
-              <div className="mt-6 pt-5 border-t border-slate-100">
-                <div className="p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      <ShieldCheck className="h-4 w-4 text-indigo-600" />
-                      Super Admin Access
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">
-                      Root Admin
-                    </span>
-                  </div>
-
-                  <div className="text-xs space-y-1.5 font-mono text-slate-600 bg-white p-2.5 rounded-xl border border-slate-200/70">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 text-[11px]">User ID:</span>
-                      <strong className="text-indigo-700 select-all font-semibold">admin</strong>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 text-[11px]">Email:</span>
-                      <strong className="text-slate-800 select-all font-semibold">admin@asrgroup.com</strong>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 text-[11px]">Password:</span>
-                      <strong className="text-indigo-700 select-all font-semibold">admin123</strong>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 mt-2.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoginUserIdOrEmail('admin');
-                        setLoginPassword('admin123');
-                        setLoginError(null);
-                      }}
-                      className="flex items-center justify-center gap-1.5 py-2 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition cursor-pointer"
-                    >
-                      <KeyRound className="h-3.5 w-3.5 text-slate-500" />
-                      <span>Auto-fill</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDirectAdminLogin('admin@asrgroup.com', 'admin')}
-                      className="flex items-center justify-center gap-1.5 py-2 px-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition cursor-pointer active:scale-98 shadow-xs"
-                    >
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      <span>Instant Login</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
