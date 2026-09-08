@@ -926,7 +926,84 @@ export default function App() {
 
             {/* Sidebar Nav */}
             <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
-              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 mb-2">Requisition Ledger</div>
+              {/* Network & System Section */}
+              {(hasViewPermission('monitor_targets') || hasViewPermission('remote_credentials') || hasViewPermission('hotspot_ledger') || hasViewPermission('notebook_ledger') || hasViewPermission('servers') || isAdmin) && (
+                <>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 mb-2">Network & System</div>
+                  
+                  {hasViewPermission('servers') && (
+                    <button
+                      onClick={() => setView('servers')}
+                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
+                        view === 'servers'
+                          ? 'bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 font-bold'
+                          : 'text-slate-400 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Server className="h-4 w-4 text-emerald-400 shrink-0" />
+                      Server & Host Monitoring
+                    </button>
+                  )}
+
+                  {hasViewPermission('monitor_targets') && (
+                    <button
+                      onClick={() => setView('monitor_targets')}
+                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
+                        view === 'monitor_targets'
+                          ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold'
+                          : 'text-slate-400 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Activity className="h-4 w-4 text-indigo-400 shrink-0" />
+                      Target Monitor Ledger
+                    </button>
+                  )}
+
+                  {hasViewPermission('remote_credentials') && (
+                    <button
+                      onClick={() => setView('remote_credentials')}
+                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
+                        view === 'remote_credentials'
+                          ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 font-bold'
+                          : 'text-slate-400 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Terminal className="h-4 w-4 text-blue-400 shrink-0" />
+                      Remote Credentials
+                    </button>
+                  )}
+
+                  {hasViewPermission('hotspot_ledger') && (
+                    <button
+                      onClick={() => setView('hotspot_ledger')}
+                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
+                        view === 'hotspot_ledger'
+                          ? 'bg-cyan-600/10 text-cyan-400 border border-cyan-500/20 font-bold'
+                          : 'text-slate-400 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Wifi className="h-4 w-4 text-cyan-400 shrink-0" />
+                      Hotspot Information Ledger
+                    </button>
+                  )}
+
+                  {hasViewPermission('notebook_ledger') && (
+                    <button
+                      onClick={() => setView('notebook_ledger')}
+                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
+                        view === 'notebook_ledger'
+                          ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold'
+                          : 'text-slate-400 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <BookOpen className="h-4 w-4 text-indigo-400 shrink-0" />
+                      Note Book Ledger
+                    </button>
+                  )}
+                </>
+              )}
+
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 pt-4 mb-2">Requisition Ledger</div>
               
               <button
                 onClick={() => { setView('dashboard'); setSelectedRequisition(undefined); }}
@@ -1102,82 +1179,6 @@ export default function App() {
                     <span className={`w-2 h-2 rounded-full ${view === 'purchase_bills' ? 'bg-indigo-500' : 'bg-slate-600'}`}></span>
                     Purchase Bill
                   </button>
-                </>
-              )}
-
-              {(hasViewPermission('monitor_targets') || hasViewPermission('remote_credentials') || hasViewPermission('hotspot_ledger') || hasViewPermission('notebook_ledger') || hasViewPermission('servers') || isAdmin) && (
-                <>
-                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 pt-4 mb-2">Network & System</div>
-                  
-                  {hasViewPermission('servers') && (
-                    <button
-                      onClick={() => setView('servers')}
-                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
-                        view === 'servers'
-                          ? 'bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 font-bold'
-                          : 'text-slate-400 hover:bg-slate-800/60'
-                      }`}
-                    >
-                      <Server className="h-4 w-4 text-emerald-400 shrink-0" />
-                      Server & Host Monitoring
-                    </button>
-                  )}
-
-                  {hasViewPermission('monitor_targets') && (
-                    <button
-                      onClick={() => setView('monitor_targets')}
-                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
-                        view === 'monitor_targets'
-                          ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold'
-                          : 'text-slate-400 hover:bg-slate-800/60'
-                      }`}
-                    >
-                      <Activity className="h-4 w-4 text-indigo-400 shrink-0" />
-                      Target Monitor Ledger
-                    </button>
-                  )}
-
-                  {hasViewPermission('remote_credentials') && (
-                    <button
-                      onClick={() => setView('remote_credentials')}
-                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
-                        view === 'remote_credentials'
-                          ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 font-bold'
-                          : 'text-slate-400 hover:bg-slate-800/60'
-                      }`}
-                    >
-                      <Terminal className="h-4 w-4 text-blue-400 shrink-0" />
-                      Remote Credentials
-                    </button>
-                  )}
-
-                  {hasViewPermission('hotspot_ledger') && (
-                    <button
-                      onClick={() => setView('hotspot_ledger')}
-                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
-                        view === 'hotspot_ledger'
-                          ? 'bg-cyan-600/10 text-cyan-400 border border-cyan-500/20 font-bold'
-                          : 'text-slate-400 hover:bg-slate-800/60'
-                      }`}
-                    >
-                      <Wifi className="h-4 w-4 text-cyan-400 shrink-0" />
-                      Hotspot Information Ledger
-                    </button>
-                  )}
-
-                  {hasViewPermission('notebook_ledger') && (
-                    <button
-                      onClick={() => setView('notebook_ledger')}
-                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
-                        view === 'notebook_ledger'
-                          ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 font-bold'
-                          : 'text-slate-400 hover:bg-slate-800/60'
-                      }`}
-                    >
-                      <BookOpen className="h-4 w-4 text-indigo-400 shrink-0" />
-                      Note Book Ledger
-                    </button>
-                  )}
                 </>
               )}
 
