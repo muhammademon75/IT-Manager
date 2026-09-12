@@ -191,6 +191,59 @@ export default function AcknowledgementForm({
     ]);
   };
 
+  const handleAddRowAfter = (afterSl?: number) => {
+    const newRow: AcknowledgementItem = {
+      sl: (afterSl ?? items.length) + 1,
+      productName: '',
+      brand: '',
+      productModel: '',
+      qty: 0,
+      serialNumber: '',
+      type: '',
+      sourceOfProduct: '',
+      distributionDate: ''
+    };
+
+    setItems((prev) => {
+      if (afterSl === undefined) {
+        return [...prev, newRow].map((item, idx) => ({ ...item, sl: idx + 1 }));
+      }
+      const index = prev.findIndex((item) => item.sl === afterSl);
+      if (index === -1) {
+        return [...prev, newRow].map((item, idx) => ({ ...item, sl: idx + 1 }));
+      }
+      const updated = [...prev];
+      updated.splice(index + 1, 0, newRow);
+      return updated.map((item, idx) => ({ ...item, sl: idx + 1 }));
+    });
+  };
+
+  const handleRemoveRow = (slToRemove: number) => {
+    setItems((prev) => {
+      if (prev.length <= 1) {
+        return [
+          {
+            sl: 1,
+            productName: '',
+            brand: '',
+            productModel: '',
+            qty: 0,
+            serialNumber: '',
+            type: '',
+            sourceOfProduct: '',
+            distributionDate: ''
+          }
+        ];
+      }
+      return prev
+        .filter((item) => item.sl !== slToRemove)
+        .map((item, index) => ({
+          ...item,
+          sl: index + 1
+        }));
+    });
+  };
+
   const handleSave = async () => {
     if (!userName.trim()) {
       setMessage({ type: 'error', text: 'Recipient Name is required.' });
@@ -625,13 +678,19 @@ export default function AcknowledgementForm({
           <table className="w-full text-left border-collapse table-fixed font-sans text-[10px]">
             <thead>
               <tr style={{ backgroundColor: '#f3f4f6', color: '#000000' }} className="font-extrabold border-b border-black text-center">
-                <th className="w-[15%] py-1.5 px-1 border-r border-black break-words" style={{ color: '#000000', verticalAlign: 'middle' }}>PRODUCT NAME</th>
-                <th className="w-[10%] py-1.5 px-1 border-r border-black break-words" style={{ color: '#000000', verticalAlign: 'middle' }}>BRAND</th>
-                <th className="w-[15%] py-1.5 px-1 border-r border-black break-words" style={{ color: '#000000', verticalAlign: 'middle' }}>PRODUCT MODEL</th>
-                <th className="w-[6%] py-1.5 px-1 border-r border-black break-words" style={{ color: '#000000', verticalAlign: 'middle' }}>QTY</th>
-                <th className="w-[29%] py-1.5 px-1 border-r border-black break-words" style={{ color: '#000000', verticalAlign: 'middle' }}>SERIAL NUMBER</th>
-                <th className="w-[11%] py-1.5 px-1 border-r border-black break-words" style={{ color: '#000000', verticalAlign: 'middle' }}>TYPE</th>
-                <th className="w-[14%] py-1.5 px-1 break-words" style={{ color: '#000000', verticalAlign: 'middle' }}>SOURCE OF PRODUCT</th>
+                <th className={`${!isViewMode ? 'w-[15%]' : 'w-[15%]'} py-1.5 px-1 border-r border-black break-words`} style={{ color: '#000000', verticalAlign: 'middle' }}>PRODUCT NAME</th>
+                <th className={`${!isViewMode ? 'w-[10%]' : 'w-[10%]'} py-1.5 px-1 border-r border-black break-words`} style={{ color: '#000000', verticalAlign: 'middle' }}>BRAND</th>
+                <th className={`${!isViewMode ? 'w-[14%]' : 'w-[15%]'} py-1.5 px-1 border-r border-black break-words`} style={{ color: '#000000', verticalAlign: 'middle' }}>PRODUCT MODEL</th>
+                <th className={`${!isViewMode ? 'w-[6%]' : 'w-[6%]'} py-1.5 px-1 border-r border-black break-words`} style={{ color: '#000000', verticalAlign: 'middle' }}>QTY</th>
+                <th className={`${!isViewMode ? 'w-[28%]' : 'w-[29%]'} py-1.5 px-1 border-r border-black break-words`} style={{ color: '#000000', verticalAlign: 'middle' }}>SERIAL NUMBER</th>
+                <th className={`${!isViewMode ? 'w-[10%]' : 'w-[11%]'} py-1.5 px-1 border-r border-black break-words`} style={{ color: '#000000', verticalAlign: 'middle' }}>TYPE</th>
+                <th className={`${!isViewMode ? 'w-[13%] border-r border-black' : 'w-[14%]'} py-1.5 px-1 break-words`} style={{ color: '#000000', verticalAlign: 'middle' }}>SOURCE OF PRODUCT</th>
+                {!isViewMode && (
+                  <th className="no-print w-[4%] py-1 px-0.5 text-center break-words font-bold" style={{ color: '#000000', verticalAlign: 'middle' }} data-html2canvas-ignore="true" title="Row Actions (Delete / Add Extra Row)">
+                    <span className="sr-only">Actions</span>
+                    <span className="text-[8px] font-bold text-slate-500">ACT</span>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -802,7 +861,7 @@ export default function AcknowledgementForm({
                   </td>
 
                   {/* Source of Product */}
-                  <td className="p-0 align-middle text-center font-semibold text-[11px]">
+                  <td className={`p-0 ${!isViewMode ? 'border-r border-black' : ''} align-middle text-center font-semibold text-[11px]`}>
                     <div className="flex items-center justify-center w-full min-h-[40px] px-1 py-1">
                       {isViewMode ? (
                         <span className="block w-full text-center whitespace-normal break-words py-1.5 px-1 leading-tight">{item.sourceOfProduct || '—'}</span>
@@ -829,6 +888,30 @@ export default function AcknowledgementForm({
                       )}
                     </div>
                   </td>
+
+                  {/* Row Actions: Delete & Add Extra Row (Only in Form) */}
+                  {!isViewMode && (
+                    <td className="no-print p-0 align-middle text-center bg-slate-50/20 hover:bg-slate-50/80 transition-colors" data-html2canvas-ignore="true">
+                      <div className="flex flex-col items-center justify-center gap-1 w-full min-h-[44px] px-0.5 py-1">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRow(item.sl)}
+                          title="Delete this row"
+                          className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-100 active:scale-90 rounded transition cursor-pointer flex items-center justify-center"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAddRowAfter(item.sl)}
+                          title="Add extra row"
+                          className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 active:scale-90 rounded transition cursor-pointer flex items-center justify-center"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
