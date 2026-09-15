@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Receipt } from '../types';
-import { numberToWords } from '../utils/receiptUtils';
-import { X, Save, FileText } from 'lucide-react';
+import { numberToWords, getNextReceiptNo } from '../utils/receiptUtils';
+import { X, Save, FileText, Sparkles } from 'lucide-react';
 
 interface ReceiptFormProps {
   receipt?: Receipt | null;
   onSave: (receipt: Receipt) => void;
   onClose: () => void;
   currentUserDisplayName?: string;
+  existingReceipts?: Receipt[];
 }
 
 export const ReceiptForm: React.FC<ReceiptFormProps> = ({
@@ -15,9 +16,10 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({
   onSave,
   onClose,
   currentUserDisplayName,
+  existingReceipts = [],
 }) => {
   const [formData, setFormData] = useState<Omit<Receipt, 'id'>>({
-    receiptNo: `GMR-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
+    receiptNo: receipt ? receipt.receiptNo : getNextReceiptNo(existingReceipts),
     date: new Date().toISOString().split('T')[0],
     companyName: 'General Money Receipt',
     payerName: 'Valued Client',
@@ -47,8 +49,13 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({
         notes: receipt.notes || '',
         status: receipt.status || 'Paid',
       });
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        receiptNo: getNextReceiptNo(existingReceipts),
+      }));
     }
-  }, [receipt, currentUserDisplayName]);
+  }, [receipt, currentUserDisplayName, existingReceipts]);
 
   const handleAmountChange = (val: number) => {
     const num = isNaN(val) ? 0 : val;
@@ -101,13 +108,26 @@ export const ReceiptForm: React.FC<ReceiptFormProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Receipt No</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700 uppercase">Receipt No</label>
+                {!receipt && (
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, receiptNo: getNextReceiptNo(existingReceipts) }))}
+                    className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Auto generate next sequence number"
+                  >
+                    <Sparkles className="w-3 h-3" /> Auto Next
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 required
                 value={formData.receiptNo}
                 onChange={(e) => setFormData({ ...formData, receiptNo: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                placeholder="e.g. GMR-2026-101"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono font-bold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
             </div>
           </div>

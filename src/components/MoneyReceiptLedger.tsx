@@ -3,7 +3,7 @@ import { collection, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp } from 
 import { db } from '../firebase';
 import { getLocalCache, setLocalCache } from '../utils/localCache';
 import { Receipt } from '../types';
-import { INITIAL_RECEIPTS, formatCurrency } from '../utils/receiptUtils';
+import { INITIAL_RECEIPTS, formatCurrency, getNextReceiptNo } from '../utils/receiptUtils';
 import { ReceiptCard } from './ReceiptCard';
 import { ReceiptForm } from './ReceiptForm';
 import { ReceiptTable } from './ReceiptTable';
@@ -155,7 +155,7 @@ export const MoneyReceiptLedger: React.FC<MoneyReceiptLedgerProps> = ({
     const duplicated: Receipt = {
       ...receipt,
       id: `rcpt-${Date.now()}`,
-      receiptNo: `GMR-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
+      receiptNo: getNextReceiptNo(receipts),
       date: new Date().toISOString().split('T')[0],
       status: 'Paid',
     };
@@ -256,21 +256,34 @@ export const MoneyReceiptLedger: React.FC<MoneyReceiptLedgerProps> = ({
           return;
         }
 
-        const imported: Receipt[] = data.map((row, idx) => ({
-          id: `rcpt-import-${Date.now()}-${idx}`,
-          receiptNo: row['Receipt No'] || `GMR-${new Date().getFullYear()}-${100 + idx}`,
-          date: row['Date'] || new Date().toISOString().split('T')[0],
-          companyName: row['Company / Issuer'] || 'General Money Receipt',
-          payerName: row['Payer Name'] || 'Client',
-          subject: row['Subject / Particulars'] || 'Transaction',
-          paymentMethod: row['Payment Method'] || 'Cash',
-          amount: Number(row['Amount (BDT)']) || 0,
-          amountInWords: row['Amount in Words'] || '',
-          receivedBy: row['Received By'] || 'Md Emon Hossain',
-          authorizedBy: row['Authorized By'] || 'Md Shafiqur Rahman',
-          status: row['Status'] || 'Paid',
-          notes: row['Notes'] || '',
-        }));
+        const currentYear = new Date().getFullYear();
+        let maxExisting = 100;
+        receipts.forEach((r) => {
+          const m = r.receiptNo?.match(/^GMR-(?:\d{4}-)?(\d+)$/i);
+          if (m && m[1]) {
+            const num = parseInt(m[1], 10);
+            if (num > maxExisting) maxExisting = num;
+          }
+        });
+
+        const imported: Receipt[] = data.map((row, idx) => {
+          maxExisting++;
+          return {
+            id: `rcpt-import-${Date.now()}-${idx}`,
+            receiptNo: row['Receipt No'] || `GMR-${currentYear}-${maxExisting}`,
+            date: row['Date'] || new Date().toISOString().split('T')[0],
+            companyName: row['Company / Issuer'] || 'General Money Receipt',
+            payerName: row['Payer Name'] || 'Client',
+            subject: row['Subject / Particulars'] || 'Transaction',
+            paymentMethod: row['Payment Method'] || 'Cash',
+            amount: Number(row['Amount (BDT)']) || 0,
+            amountInWords: row['Amount in Words'] || '',
+            receivedBy: row['Received By'] || 'Md Emon Hossain',
+            authorizedBy: row['Authorized By'] || 'Md Shafiqur Rahman',
+            status: row['Status'] || 'Paid',
+            notes: row['Notes'] || '',
+          };
+        });
 
         for (const item of imported) {
           await handleSaveReceipt(item);
@@ -528,6 +541,7 @@ export const MoneyReceiptLedger: React.FC<MoneyReceiptLedgerProps> = ({
             setEditingReceipt(null);
           }}
           currentUserDisplayName={currentUser?.displayName || currentUser?.userId || 'Md Emon Hossain'}
+          existingReceipts={receipts}
         />
       )}
     </div>

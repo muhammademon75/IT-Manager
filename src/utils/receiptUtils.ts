@@ -67,6 +67,39 @@ export function numberToWords(amount: number): string {
   return `${capitalized} only.`;
 }
 
+export function getNextReceiptNo(existingReceipts: Receipt[] = []): string {
+  const currentYear = new Date().getFullYear();
+  const prefix = `GMR-${currentYear}-`;
+
+  let maxSeq = 100;
+
+  if (Array.isArray(existingReceipts)) {
+    existingReceipts.forEach((r) => {
+      if (!r?.receiptNo) return;
+      const trimmed = String(r.receiptNo).trim();
+      // Match GMR-2026-101 or GMR-101
+      const match = trimmed.match(/^GMR-(?:\d{4}-)?(\d+)$/i);
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeq) {
+          maxSeq = num;
+        }
+      } else {
+        const anyNumberMatch = trimmed.match(/(\d+)$/);
+        if (anyNumberMatch && anyNumberMatch[1]) {
+          const num = parseInt(anyNumberMatch[1], 10);
+          if (!isNaN(num) && num > maxSeq && num < 100000) {
+            maxSeq = num;
+          }
+        }
+      }
+    });
+  }
+
+  const nextSeq = maxSeq + 1;
+  return `${prefix}${nextSeq}`;
+}
+
 export const INITIAL_RECEIPTS: Receipt[] = [
   {
     id: 'rcpt-init-01',
