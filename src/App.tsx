@@ -116,7 +116,7 @@ export default function App() {
   // Check if current user has permission for a specific view
   const hasViewPermission = (targetView: typeof view): boolean => {
     const email = user?.email || '';
-    const isRootAdmin = email === 'muhammademon72@gmail.com' || email === 'admin@asrgroup.com';
+    const isRootAdmin = email === 'muhammademon72@gmail.com';
     if (isRootAdmin || isAdmin) return true; // Super admins have all permissions
     if (!userProfile || !userProfile.permissions) return false;
 
@@ -202,9 +202,23 @@ export default function App() {
       if (authUser) {
         setUser(authUser);
         const email = authUser.email || '';
-        const isRootAdmin = email === 'muhammademon72@gmail.com' || email === 'admin@asrgroup.com';
+        const isRootAdmin = email === 'muhammademon72@gmail.com';
         
         try {
+          if (isRootAdmin) {
+            const rootRef = doc(db, 'users', 'admin_root');
+            const rootSnap = await getDoc(rootRef);
+            if (rootSnap.exists()) {
+              const rootData = rootSnap.data() as UserProfile;
+              setUserProfile({
+                ...rootData,
+                uid: 'admin_root'
+              });
+              setIsAdmin(true);
+              return;
+            }
+          }
+
           const userRef = doc(db, 'users', authUser.uid);
           const snap = await getDoc(userRef);
           
@@ -308,7 +322,6 @@ export default function App() {
 
               const isRoot = 
                 parsed.email === 'muhammademon72@gmail.com' || 
-                parsed.email === 'admin@asrgroup.com' || 
                 parsed.role === 'admin' || 
                 parsed.userId === 'admin' ||
                 parsed.uid === 'admin_root';
@@ -316,8 +329,8 @@ export default function App() {
               const restoredProfile: UserProfile = parsed.profile || {
                 uid: parsed.uid,
                 userId: parsed.userId || 'admin',
-                displayName: parsed.displayName || 'Administrator',
-                email: parsed.email || 'admin@asrgroup.com',
+                displayName: parsed.displayName || 'Super Administrator',
+                email: parsed.email || 'muhammademon72@gmail.com',
                 role: isRoot ? 'admin' : (parsed.role || 'viewer'),
                 status: 'approved',
                 permissions: isRoot ? fullAdminPerms : (parsed.permissions || fullAdminPerms),
@@ -374,7 +387,7 @@ export default function App() {
       if (snap.exists()) {
         const data = snap.data();
         const email = user.email || '';
-        const isRootAdmin = email === 'muhammademon72@gmail.com' || email === 'admin@asrgroup.com';
+        const isRootAdmin = email === 'muhammademon72@gmail.com';
         const userStatus = (isRootAdmin || data.role === 'admin') ? 'approved' : (data.status || 'pending');
         
         const defaultPerms = {
@@ -421,7 +434,7 @@ export default function App() {
     }
   }, [view, isAdmin, user, userProfile]);
 
-  const handleDirectAdminLogin = (adminEmail: string = 'admin@asrgroup.com', adminId: string = 'admin') => {
+  const handleDirectAdminLogin = (adminEmail: string = 'muhammademon72@gmail.com', adminId: string = 'muhammademon72@gmail.com') => {
     setIsLoggingIn(true);
     setLoginError(null);
     const fullAdminPerms = {
@@ -510,13 +523,12 @@ export default function App() {
         cleanInput === 'muhammademon' ||
         cleanInput === 'muhammademon72' ||
         cleanInput === 'muhammademon72@gmail.com' ||
-        cleanInput === 'admin@asrgroup.com' ||
         cleanInput === 'root' ||
         cleanInput === 'superadmin' ||
         loginPassword === 'admin123';
 
       if (isAdminIdentifier) {
-        const targetEmail = cleanInput.includes('@') ? cleanInput : 'admin@asrgroup.com';
+        const targetEmail = cleanInput.includes('@') ? cleanInput : 'muhammademon72@gmail.com';
         handleDirectAdminLogin(targetEmail, cleanInput);
         return;
       }
@@ -645,7 +657,6 @@ export default function App() {
 
   const isCurrentRootAdmin = 
     user?.email === 'muhammademon72@gmail.com' || 
-    user?.email === 'admin@asrgroup.com' || 
     userProfile?.role === 'admin' ||
     userProfile?.userId === 'admin' ||
     user?.uid === 'admin_root';
@@ -699,7 +710,7 @@ export default function App() {
                     required
                     value={loginUserIdOrEmail}
                     onChange={(e) => setLoginUserIdOrEmail(e.target.value)}
-                    placeholder="admin or admin@asrgroup.com"
+                    placeholder="admin or muhammademon72@gmail.com"
                     autoComplete="username"
                     className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-sm font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-800 transition-colors"
                   />
@@ -812,7 +823,7 @@ export default function App() {
             <div className="relative z-10 space-y-3">
               <button
                 type="button"
-                onClick={() => handleDirectAdminLogin('admin@asrgroup.com', 'admin')}
+                onClick={() => handleDirectAdminLogin('muhammademon72@gmail.com', 'muhammademon72@gmail.com')}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition cursor-pointer"
               >
                 <ShieldCheck className="h-4 w-4 text-emerald-100" />

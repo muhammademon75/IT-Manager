@@ -32,7 +32,7 @@ export default function UserManagement({
   isAdmin = false,
   permissions
 }: UserManagementProps = {}) {
-  const isCurrentRoot = currentUserEmail === 'muhammademon72@gmail.com' || currentUserEmail === 'admin@asrgroup.com';
+  const isCurrentRoot = currentUserEmail === 'muhammademon72@gmail.com';
   const canEdit = isAdmin || isCurrentRoot || (permissions?.edit ?? true);
   const canDelete = isAdmin || isCurrentRoot || (permissions?.delete ?? true);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -91,7 +91,14 @@ export default function UserManagement({
     setLoading(true);
     try {
       const querySnapshot = await getDocs(collection(db, 'users'));
-      const usersList: UserProfile[] = querySnapshot.docs.map(doc => {
+      const usersList: UserProfile[] = querySnapshot.docs
+        .filter(doc => {
+          const data = doc.data();
+          if (doc.id === 'XfqOFo5s0heTTfENsE9LeWFNrn33' || doc.id === 'admin_admin') return false;
+          if (data.email === 'admin@asrgroup.com') return false;
+          return true;
+        })
+        .map(doc => {
         const data = doc.data();
         const defaultPerms = {
           requisitions: { view: true, edit: true, delete: true },
@@ -109,7 +116,7 @@ export default function UserManagement({
           userManagement: { view: false, edit: false, delete: false },
           presetSigners: { view: false, edit: false, delete: false }
         };
-        const isRootAccount = data.email === 'muhammademon72@gmail.com' || data.email === 'admin@asrgroup.com';
+        const isRootAccount = doc.id === 'admin_root' || (data.email === 'muhammademon72@gmail.com' && data.displayName === 'Super Administrator');
         const userStatus = (isRootAccount || data.role === 'admin') ? 'approved' : (data.status || 'pending');
 
         return {
@@ -436,9 +443,9 @@ export default function UserManagement({
   };
 
   const executeDeleteUserProfile = async (uid: string, email: string) => {
-    const isSystemRoot = email === 'muhammademon72@gmail.com' || email === 'admin@asrgroup.com';
+    const isSystemRoot = uid === 'admin_root';
     if (isSystemRoot) {
-      setStatusNotice({ type: 'error', message: "Cannot delete root administrator accounts." });
+      setStatusNotice({ type: 'error', message: "Cannot delete the primary root administrator account." });
       return;
     }
 
@@ -636,7 +643,7 @@ export default function UserManagement({
             <tbody className="divide-y divide-slate-100">
               {users.map((user) => {
                 const isExpanded = expandedUser === user.uid;
-                const isSystemRoot = user.email === 'muhammademon72@gmail.com' || user.email === 'admin@asrgroup.com';
+                const isSystemRoot = user.uid === 'admin_root';
                 const hasCustomPermissions = user.permissions && Object.values(user.permissions).some((p: any) => p.view || p.edit || p.delete);
 
                 return (
@@ -783,7 +790,7 @@ export default function UserManagement({
         const user = users.find(u => u.uid === expandedUser);
         if (!user) return null;
         
-        const isSystemRoot = user.email === 'muhammademon72@gmail.com' || user.email === 'admin@asrgroup.com';
+        const isSystemRoot = user.uid === 'admin_root';
         const isUserAdmin = user.role === 'admin' || isSystemRoot;
 
         return (

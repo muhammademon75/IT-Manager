@@ -116,7 +116,7 @@ export const MoneyReceiptLedger: React.FC<MoneyReceiptLedgerProps> = ({
           ...receipt,
           updatedAt: serverTimestamp(),
           createdBy: receipt.createdBy || currentUser?.uid || 'system',
-          createdByEmail: receipt.createdByEmail || currentUser?.email || 'admin@asrgroup.com',
+          createdByEmail: receipt.createdByEmail || currentUser?.email || 'muhammademon72@gmail.com',
         },
         { merge: true }
       );
