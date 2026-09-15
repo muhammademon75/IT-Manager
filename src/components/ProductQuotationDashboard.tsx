@@ -3,7 +3,7 @@ import { ProductQuotation } from '../types';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { getLocalCache, setLocalCache, saveLocalCacheItem, deleteLocalCacheItem } from '../utils/localCache';
-import { Plus, Search, FileText, Calendar, Trash2 } from 'lucide-react';
+import { Plus, Search, FileText, Calendar, Trash2, Copy, Eye, Edit2 } from 'lucide-react';
 
 interface ProductQuotationDashboardProps {
   onNewForm: () => void;
@@ -118,21 +118,47 @@ export default function ProductQuotationDashboard({
                   <td className="px-4 py-2 text-indigo-600 font-semibold">{q.quotationNumber}</td>
                   <td className="px-4 py-2">{q.clientCompany}</td>
                   <td className="px-4 py-2">{q.totalAmount?.toLocaleString()} Taka</td>
-                  <td className="px-4 py-2 flex justify-center items-center gap-3">
-                    {canEdit && (
-                      <button onClick={() => onCopyQuotation(q)} className="text-emerald-650 hover:underline font-medium">
-                        Copy
+                  <td className="px-4 py-2">
+                    <div className="flex justify-center items-center gap-1">
+                      {canEdit && (
+                        <button 
+                          type="button"
+                          onClick={() => onCopyQuotation(q)} 
+                          title="Copy Quotation"
+                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button 
+                        type="button"
+                        onClick={() => onViewQuotation(q)} 
+                        title="View Quotation"
+                        className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Eye className="w-4 h-4" />
                       </button>
-                    )}
-                    <button onClick={() => onViewQuotation(q)} className="text-indigo-600 hover:underline">
-                      View
-                    </button>
-                    {canEdit && (
-                      <button onClick={() => onEditQuotation(q)} className="text-blue-600 hover:underline">Edit</button>
-                    )}
-                    {canDelete && (
-                      <button onClick={(e) => handleDeleteButtonClick(e, q.id)} className="text-red-600 hover:underline">Delete</button>
-                    )}
+                      {canEdit && (
+                        <button 
+                          type="button"
+                          onClick={() => onEditQuotation(q)} 
+                          title="Edit Quotation"
+                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button 
+                          type="button"
+                          onClick={(e) => handleDeleteButtonClick(e, q.id)} 
+                          title="Delete Quotation"
+                          className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
