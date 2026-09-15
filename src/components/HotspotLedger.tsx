@@ -597,6 +597,16 @@ export const HotspotLedger: React.FC<HotspotLedgerProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {canEdit && (
+              <button
+                onClick={() => setIsFormOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add User</span>
+              </button>
+            )}
+
             <button
               onClick={() => {
                 setIsShortScreenshotModalOpen(true);
@@ -653,18 +663,6 @@ export const HotspotLedger: React.FC<HotspotLedgerProps> = ({
                   className="hidden"
                 />
               </label>
-            )}
-
-
-
-            {canEdit && (
-              <button
-                onClick={() => setIsFormOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add User</span>
-              </button>
             )}
           </div>
         </div>
