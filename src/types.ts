@@ -10,6 +10,7 @@ export interface UserPermissions {
   returnChallans: LedgerPermissions;
   quotations: LedgerPermissions;
   purchaseBills: LedgerPermissions;
+  moneyReceipts?: LedgerPermissions;
   monitorTargets?: LedgerPermissions;
   remoteCredentials?: LedgerPermissions;
   hotspotLedger?: LedgerPermissions;
@@ -199,6 +200,26 @@ export interface PurchaseBillEntry {
   applicantName: string;
   distributionDate: string;
   remarks: string;
+}
+
+export interface Receipt {
+  id: string;
+  receiptNo: string;
+  date: string;
+  companyName: string;
+  payerName: string;
+  subject: string;
+  amount: number;
+  amountInWords: string;
+  receivedBy: string;
+  authorizedBy: string;
+  paymentMethod: 'Cash' | 'Mobile Banking' | 'Bank Transfer' | 'Check' | 'Other';
+  notes?: string;
+  status: 'Paid' | 'Due' | 'Pending' | 'Cancelled';
+  createdBy?: string;
+  createdByEmail?: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 export interface MoneyReceipt {

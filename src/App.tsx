@@ -25,8 +25,9 @@ import { RemoteCredentialLedger } from './components/RemoteCredentialLedger';
 import { NotebookLedger } from './components/NotebookLedger';
 import { StorageCluster } from './components/StorageCluster';
 import ServerMonitoring from './components/ServerMonitoring';
+import { MoneyReceiptLedger } from './components/MoneyReceiptLedger';
 import { Requisition, Acknowledgement, ReturnChallan, ProductQuotation, CompanyProfile, PurchaseBill, UserProfile, UserPermissions, DamagedStockProposal } from './types';
-import { FolderHeart, LogIn, LogOut, Code, Heart, Monitor, Terminal, FileCheck, Database, FileText, Settings, PanelLeftOpen, PanelLeftClose, Menu, RefreshCw, Activity, CreditCard, Wifi, BookOpen, Clock, ShieldAlert, CheckCircle2, XCircle, User as UserIcon, Lock, Eye, EyeOff, ShieldCheck, KeyRound, Sparkles, Server } from 'lucide-react';
+import { FolderHeart, LogIn, LogOut, Code, Heart, Monitor, Terminal, FileCheck, Database, FileText, Settings, PanelLeftOpen, PanelLeftClose, Menu, RefreshCw, Activity, CreditCard, Wifi, BookOpen, Clock, ShieldAlert, CheckCircle2, XCircle, User as UserIcon, Lock, Eye, EyeOff, ShieldCheck, KeyRound, Sparkles, Server, ReceiptText } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -50,7 +51,7 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   
   // Initial view from URL search param or hash
-  const getViewFromUrl = (): 'dashboard' | 'create_form' | 'view_form' | 'copy_requisition' | 'presets_config' | 'acknowledgements' | 'create_acknowledgement' | 'view_acknowledgement' | 'edit_acknowledgement' | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan' | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation' | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills' | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'servers' => {
+  const getViewFromUrl = (): 'dashboard' | 'create_form' | 'view_form' | 'copy_requisition' | 'presets_config' | 'acknowledgements' | 'create_acknowledgement' | 'view_acknowledgement' | 'edit_acknowledgement' | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan' | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation' | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills' | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'money_receipts' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'servers' => {
     try {
       const params = new URLSearchParams(window.location.search);
       const viewParam = params.get('view') || window.location.hash.replace('#', '');
@@ -60,7 +61,7 @@ export default function App() {
         'return_challans', 'create_return_challan', 'view_return_challan', 'edit_return_challan',
         'quotations', 'create_quotation', 'edit_quotation', 'view_quotation', 'copy_quotation',
         'company_profile', 'customer_info', 'user_management', 'purchase_bills',
-        'create_purchase_bill', 'view_purchase_bill', 'edit_purchase_bill', 'copy_purchase_bill', 'monitor_targets', 'remote_credentials', 'hotspot_ledger', 'notebook_ledger', 'servers',
+        'create_purchase_bill', 'view_purchase_bill', 'edit_purchase_bill', 'copy_purchase_bill', 'money_receipts', 'monitor_targets', 'remote_credentials', 'hotspot_ledger', 'notebook_ledger', 'servers',
         'damaged_stock_proposals', 'create_damaged_stock_proposal', 'edit_damaged_stock_proposal', 'view_damaged_stock_proposal', 'copy_damaged_stock_proposal'
       ];
       if (validViews.includes(viewParam)) {
@@ -79,7 +80,7 @@ export default function App() {
     | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan'
     | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation'
     | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills'
-    | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'servers'
+    | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'money_receipts' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'servers'
     | 'damaged_stock_proposals' | 'create_damaged_stock_proposal' | 'edit_damaged_stock_proposal' | 'view_damaged_stock_proposal' | 'copy_damaged_stock_proposal'
   >(getViewFromUrl);
 
@@ -138,6 +139,9 @@ export default function App() {
     }
     if (['purchase_bills', 'create_purchase_bill', 'view_purchase_bill', 'edit_purchase_bill', 'copy_purchase_bill'].includes(targetView)) {
       return perms.purchaseBills?.view ?? false;
+    }
+    if (targetView === 'money_receipts') {
+      return perms.moneyReceipts?.view ?? false;
     }
     if (targetView === 'presets_config') {
       return perms.presetSigners?.view ?? false;
@@ -210,6 +214,7 @@ export default function App() {
             returnChallans: { view: false, edit: false, delete: false },
             quotations: { view: false, edit: false, delete: false },
             purchaseBills: { view: false, edit: false, delete: false },
+            moneyReceipts: { view: false, edit: false, delete: false },
             monitorTargets: { view: false, edit: false, delete: false },
             remoteCredentials: { view: false, edit: false, delete: false },
             hotspotLedger: { view: false, edit: false, delete: false },
@@ -1110,6 +1115,23 @@ export default function App() {
                 </>
               )}
 
+              {(isAdmin || hasViewPermission('money_receipts')) && (
+                <>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 pt-4 mb-2">Money Receipt Ledger</div>
+                  <button
+                    onClick={() => setView('money_receipts')}
+                    className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
+                      view === 'money_receipts'
+                        ? 'bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 font-bold'
+                        : 'text-slate-400 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <ReceiptText className="h-4 w-4 text-emerald-400 shrink-0" />
+                    Money Receipt Generator
+                  </button>
+                </>
+              )}
+
               {(hasViewPermission('user_management') || hasViewPermission('presets_config')) && (
                 <>
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 pt-4 mb-2">Admin Panel</div>
@@ -1750,6 +1772,13 @@ export default function App() {
                       currentUserUid={user.uid}
                       isAdmin={isAdmin}
                       permissions={userProfile?.permissions?.servers}
+                    />
+                  )}
+                  {view === 'money_receipts' && (
+                    <MoneyReceiptLedger
+                      currentUser={user}
+                      isAdmin={isAdmin}
+                      permissions={userProfile?.permissions?.moneyReceipts}
                     />
                   )}
                 </motion.div>
