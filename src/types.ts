@@ -15,10 +15,12 @@ export interface UserPermissions {
   remoteCredentials?: LedgerPermissions;
   hotspotLedger?: LedgerPermissions;
   notebookLedger?: LedgerPermissions;
+  notesLedger?: LedgerPermissions;
   damagedStockProposals?: LedgerPermissions;
   userManagement?: LedgerPermissions;
   presetSigners?: LedgerPermissions;
   servers?: LedgerPermissions;
+  simManagement?: LedgerPermissions;
 }
 
 export interface UserProfile {
@@ -363,4 +365,97 @@ export interface PingRecord {
   responseTime: number;
 }
 
+export interface SimRecord {
+  id: string;
+  sl: number;
+  branchCode: string;
+  userName: string;
+  identyNumber: string;
+  designation: string;
+  department: string;
+  distributionDate: string;
+  simOwner: string;
+  operatorName: string;
+  simGroup: string;
+  simType: 'Postpaid' | 'Prepaid';
+  simNumber: string;
+  creditLimit: number;
+  monthlyApproved: number;
+  paymentBill: number;
+  advancePayment: number;
+  remarks: string;
+  status: 'Active' | 'Inactive';
+  updatedAt?: string;
+}
 
+export type SortField = keyof Omit<SimRecord, 'id' | 'updatedAt'>;
+
+export interface SortConfig {
+  field: SortField;
+  order: 'asc' | 'desc';
+}
+
+export interface FilterOptions {
+  search: string;
+  branchCode: string;
+  operatorName: string;
+  simType: string;
+  department: string;
+  simOwner?: string;
+  simGroup: string;
+  status?: string;
+}
+
+export interface ColumnDefinition {
+  field: SortField;
+  label: string;
+  bnLabel?: string;
+  minWidth?: string;
+  align?: 'left' | 'right' | 'center';
+}
+
+export interface DownloadedReportRecord {
+  id: string;
+  title: string;
+  monthYear: string;
+  generatedAt: string;
+  totalRecords: number;
+  activeCount: number;
+  inactiveCount: number;
+  totalBill: number;
+  totalApproved: number;
+  recordsSnapshot?: SimRecord[];
+  selectedColumns?: SortField[];
+}
+
+export const ALL_COLUMNS: ColumnDefinition[] = [
+  { field: 'sl', label: 'SL', bnLabel: 'ক্রমিক', minWidth: 'w-14', align: 'center' },
+  { field: 'branchCode', label: 'Branch Code', bnLabel: 'শাখা কোড', minWidth: 'w-24', align: 'center' },
+  { field: 'userName', label: 'User Name', bnLabel: 'ব্যবহারকারীর নাম', minWidth: 'w-48', align: 'left' },
+  { field: 'identyNumber', label: 'Identy Number', bnLabel: 'আইডি নম্বর', minWidth: 'w-32', align: 'left' },
+  { field: 'designation', label: 'Designation', bnLabel: 'পদবী', minWidth: 'w-40', align: 'left' },
+  { field: 'department', label: 'Department', bnLabel: 'বিভাগ', minWidth: 'w-44', align: 'left' },
+  { field: 'distributionDate', label: 'Distribution date', bnLabel: 'বিতরণের তারিখ', minWidth: 'w-32', align: 'center' },
+  { field: 'simOwner', label: 'Sim Owner', bnLabel: 'সিম মালিক', minWidth: 'w-28', align: 'center' },
+  { field: 'operatorName', label: 'Operator Name', bnLabel: 'অপারেটর', minWidth: 'w-24', align: 'center' },
+  { field: 'simGroup', label: 'SIM Group', bnLabel: 'গ্রুপ', minWidth: 'w-28', align: 'center' },
+  { field: 'simType', label: 'Sim Type', bnLabel: 'সিমের ধরন', minWidth: 'w-24', align: 'center' },
+  { field: 'simNumber', label: 'Sim Number', bnLabel: 'সিম নম্বর', minWidth: 'w-32', align: 'left' },
+  { field: 'creditLimit', label: 'Credit Limit', bnLabel: 'ক্রেডিট লিমিট', minWidth: 'w-28', align: 'right' },
+  { field: 'monthlyApproved', label: 'Monthly Approved', bnLabel: 'অনুমোদিত বরাদ্দ', minWidth: 'w-32', align: 'right' },
+  { field: 'paymentBill', label: 'Payment Bill', bnLabel: 'চলতি বিল', minWidth: 'w-28', align: 'right' },
+  { field: 'advancePayment', label: 'Advance Payment', bnLabel: 'অগ্রিম পেমেন্ট', minWidth: 'w-28', align: 'right' },
+  { field: 'remarks', label: 'Remarks', bnLabel: 'মন্তব্য', minWidth: 'w-40', align: 'left' },
+  { field: 'status', label: 'Status', bnLabel: 'স্ট্যাটাস', minWidth: 'w-28', align: 'center' },
+];
+
+export interface NotesLedgerEntry {
+  id: string;
+  category: string;
+  subject: string;
+  notebook: string;
+  createdBy: string;
+  createdByEmail: string;
+  createdAt?: any;
+  updatedAt?: any;
+}

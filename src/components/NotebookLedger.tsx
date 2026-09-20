@@ -552,10 +552,7 @@ export const NotebookLedger: React.FC<NotebookLedgerProps> = ({
               </div>
               <div>
                 <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                  Note Book Ledger
-                  <span className="text-xs bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-2 py-0.5 rounded-full font-normal">
-                    Website Credentials
-                  </span>
+                  Website Credentials
                   <span className="text-[10px] bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 px-2 py-0.5 rounded-full font-bold ml-2">
                     Total Users: {credentials.length}
                   </span>

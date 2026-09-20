@@ -55,6 +55,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /notes_ledger/{noteId} {
+      allow read, write: if true;
+    }
+
     match /ledgers/{ledgerId} {
       allow read, write: if true;
     }
@@ -100,6 +104,10 @@ service cloud.firestore {
     }
 
     match /hotspot_credentials/{id} {
+      allow read, write: if true;
+    }
+
+    match /sim_records/{recordId} {
       allow read, write: if true;
     }
 
