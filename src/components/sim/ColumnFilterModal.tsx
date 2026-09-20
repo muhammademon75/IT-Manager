@@ -8,6 +8,8 @@ import {
   FileDown,
   Check,
   RotateCcw,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { SortField, ALL_COLUMNS } from '../../types';
 
@@ -130,13 +132,13 @@ export const ColumnFilterModal: React.FC<ColumnFilterModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                Column Visibility & Filter
+                Column Visibility & Hide / Show
                 <span className="text-xs font-normal px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-400/30">
-                  কলাম ফিল্টার
+                  কলাম হাইড ও শো
                 </span>
               </h2>
               <p className="text-xs text-slate-300">
-                যে কলামগুলো দেখতে ও PDF এ ডাউনলোড করতে চান তা টিক দিন ({selected.length} of {ALL_COLUMNS.length} নির্বাচিত)
+                যে কলামগুলো দেখতে বা টেবিল থেকে হাইড করতে চান তা টিক দিন বা আনচেক করুন ({selected.length} of {ALL_COLUMNS.length} দৃশ্যমান)
               </p>
             </div>
           </div>
@@ -163,7 +165,7 @@ export const ColumnFilterModal: React.FC<ColumnFilterModalProps> = ({
                   onClick={selectAll}
                   className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
                 >
-                  Select All
+                  Select All (সব দেখাও)
                 </button>
                 <span className="text-slate-300">|</span>
                 <button
@@ -186,8 +188,8 @@ export const ColumnFilterModal: React.FC<ColumnFilterModalProps> = ({
                     : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <div className="font-semibold">All 17 Columns</div>
-                <div className="text-[10px] text-slate-500">সকল কলাম</div>
+                <div className="font-semibold">All {ALL_COLUMNS.length} Columns</div>
+                <div className="text-[10px] text-slate-500">সকল কলাম (আনহাইড)</div>
               </button>
 
               <button
@@ -227,25 +229,40 @@ export const ColumnFilterModal: React.FC<ColumnFilterModalProps> = ({
                 <div
                   key={col.field}
                   onClick={() => toggleColumn(col.field)}
-                  className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer select-none text-xs transition-all ${
+                  className={`flex items-start justify-between gap-2 p-2.5 rounded-lg border cursor-pointer select-none text-xs transition-all ${
                     isChecked
                       ? 'bg-blue-50/40 border-blue-400 text-slate-900 ring-1 ring-blue-400/20'
-                      : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
+                      : 'bg-slate-50/70 border-slate-200 text-slate-400 hover:border-slate-300'
                   }`}
                 >
-                  <div className="mt-0.5">
-                    {isChecked ? (
-                      <CheckSquare className="w-4 h-4 text-blue-600" />
-                    ) : (
-                      <Square className="w-4 h-4 text-slate-300" />
-                    )}
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    <div className="mt-0.5 shrink-0">
+                      {isChecked ? (
+                        <CheckSquare className="w-4 h-4 text-blue-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-slate-300" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className={`font-semibold truncate ${isChecked ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
+                        {col.label}
+                      </p>
+                      {col.bnLabel && (
+                        <p className="text-[11px] text-slate-500 leading-tight truncate">{col.bnLabel}</p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`font-semibold ${isChecked ? 'text-slate-800' : 'text-slate-400'}`}>
-                      {col.label}
-                    </p>
-                    {col.bnLabel && (
-                      <p className="text-[11px] text-slate-500 leading-tight">{col.bnLabel}</p>
+                  <div className="shrink-0 mt-0.5">
+                    {isChecked ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100/70 text-blue-700 font-medium flex items-center gap-0.5">
+                        <Eye className="w-2.5 h-2.5" />
+                        <span>Visible</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold flex items-center gap-0.5">
+                        <EyeOff className="w-2.5 h-2.5" />
+                        <span>Hidden</span>
+                      </span>
                     )}
                   </div>
                 </div>

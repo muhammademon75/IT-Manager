@@ -7,6 +7,8 @@ import {
   Trash2,
   Copy,
   Eye,
+  EyeOff,
+  Columns3,
   Phone,
   AlertTriangle,
   CheckSquare,
@@ -26,6 +28,8 @@ interface SimTableProps {
   onToggleStatus?: (record: SimRecord) => void;
   compactMode?: boolean;
   visibleColumns?: SortField[];
+  onHideColumn?: (field: SortField) => void;
+  onOpenColumnFilter?: () => void;
   selectedIds?: string[];
   onToggleSelect?: (id: string) => void;
   onSelectAll?: () => void;
@@ -47,6 +51,8 @@ export const SimTable: React.FC<SimTableProps> = ({
   onToggleStatus,
   compactMode = false,
   visibleColumns,
+  onHideColumn,
+  onOpenColumnFilter,
   selectedIds = [],
   onToggleSelect,
   onSelectAll,
@@ -408,7 +414,7 @@ export const SimTable: React.FC<SimTableProps> = ({
                   key={col.field}
                   onClick={() => onSort(col.field)}
                   className={`${padCell} ${col.minWidth} cursor-pointer select-none hover:bg-slate-200/80 transition-colors border-r border-slate-300 last:border-r-0 whitespace-nowrap group`}
-                  title={`Sort by ${col.label}`}
+                  title={`Sort by ${col.label} • Hover to hide`}
                 >
                   <div
                     className={`flex items-center gap-1.5 ${
@@ -419,15 +425,42 @@ export const SimTable: React.FC<SimTableProps> = ({
                         : 'justify-between'
                     }`}
                   >
-                    <span>{col.label}</span>
-                    <span className="inline-flex items-center text-[10px] bg-slate-200/60 p-0.5 rounded text-slate-600">
-                      {renderSortIcon(col.field)}
-                    </span>
+                    <span className="truncate">{col.label}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {onHideColumn && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onHideColumn(col.field);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-all cursor-pointer"
+                          title={`Hide "${col.label}" column (এই কলামটি হাইড করুন)`}
+                        >
+                          <EyeOff className="w-3 h-3" />
+                        </button>
+                      )}
+                      <span className="inline-flex items-center text-[10px] bg-slate-200/60 p-0.5 rounded text-slate-600">
+                        {renderSortIcon(col.field)}
+                      </span>
+                    </div>
                   </div>
                 </th>
               ))}
               <th className={`${padCell} w-24 text-center font-semibold bg-slate-100 border-l border-slate-300`}>
-                Actions
+                <div className="flex items-center justify-center gap-1.5">
+                  <span>Actions</span>
+                  {onOpenColumnFilter && (
+                    <button
+                      type="button"
+                      onClick={onOpenColumnFilter}
+                      className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-200 rounded transition-colors cursor-pointer"
+                      title="Hide or show columns (কলাম হাইড ও শো করুন)"
+                    >
+                      <Columns3 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </th>
             </tr>
           </thead>

@@ -44,7 +44,7 @@ import { ConfirmResetModal } from './sim/ConfirmResetModal';
 import { ImportModal } from './sim/ImportModal';
 import { MonthlyReportsModal } from './sim/MonthlyReportsModal';
 import { ManageSystemModal } from './sim/ManageSystemModal';
-import { Smartphone, History, CheckCircle2, Calendar, Download, Plus, Settings } from 'lucide-react';
+import { Smartphone, History, CheckCircle2, Calendar, Download, Plus, Settings, Eye, EyeOff } from 'lucide-react';
 
 interface SimManagementLedgerProps {
   currentUser: any;
@@ -54,6 +54,7 @@ interface SimManagementLedgerProps {
 
 const LOCAL_STORAGE_KEY = 'sim_management_records';
 const LOCAL_STORAGE_REPORTS_KEY = 'sim_downloaded_monthly_reports';
+const LOCAL_STORAGE_VISIBLE_COLUMNS_KEY = 'sim_management_visible_columns';
 
 export const SimManagementLedger: React.FC<SimManagementLedgerProps> = ({
   currentUser,
@@ -110,8 +111,27 @@ export const SimManagementLedger: React.FC<SimManagementLedgerProps> = ({
 
   const [compactMode, setCompactMode] = useState<boolean>(false);
   const [visibleColumns, setVisibleColumns] = useState<SortField[]>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_VISIBLE_COLUMNS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const validFields = ALL_COLUMNS.map((c) => c.field);
+          const filtered = parsed.filter((f: any) => validFields.includes(f));
+          if (filtered.length > 0) return filtered;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not read cached visible columns:', e);
+    }
     return ALL_COLUMNS.map((c) => c.field);
   });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_VISIBLE_COLUMNS_KEY, JSON.stringify(visibleColumns));
+    } catch (e) {}
+  }, [visibleColumns]);
 
   // Selection state for batch operations
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -216,6 +236,48 @@ export const SimManagementLedger: React.FC<SimManagementLedgerProps> = ({
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleToggleColumn = (field: SortField) => {
+    setVisibleColumns((prev) => {
+      if (prev.includes(field)) {
+        if (prev.length <= 1) {
+          showToast('কমপক্ষে ১টি কলাম দৃশ্যমান রাখতে হবে');
+          return prev;
+        }
+        const next = prev.filter((f) => f !== field);
+        const colObj = ALL_COLUMNS.find((c) => c.field === field);
+        showToast(`"${colObj?.label || field}" কলামটি হাইড করা হয়েছে`);
+        return next;
+      } else {
+        const next = [...prev, field];
+        const ordered = ALL_COLUMNS.map((c) => c.field).filter((f) => next.includes(f));
+        const colObj = ALL_COLUMNS.find((c) => c.field === field);
+        showToast(`"${colObj?.label || field}" কলামটি দৃশ্যমান করা হয়েছে`);
+        return ordered;
+      }
+    });
+  };
+
+  const handleHideColumn = (field: SortField) => {
+    if (visibleColumns.length <= 1) {
+      showToast('কমপক্ষে ১টি কলাম দৃশ্যমান রাখতে হবে');
+      return;
+    }
+    const colObj = ALL_COLUMNS.find((c) => c.field === field);
+    const colName = colObj ? `${colObj.label}${colObj.bnLabel ? ` (${colObj.bnLabel})` : ''}` : field;
+    setVisibleColumns((prev) => prev.filter((f) => f !== field));
+    showToast(`"${colName}" কলামটি হাইড করা হয়েছে`);
+  };
+
+  const handleShowAllColumns = () => {
+    setVisibleColumns(ALL_COLUMNS.map((c) => c.field));
+    showToast('সকল কলাম প্রদর্শিত হচ্ছে (All columns visible)');
+  };
+
+  const handleResetColumns = () => {
+    setVisibleColumns(ALL_COLUMNS.map((c) => c.field));
+    showToast('কলাম তালিকা রিসেট করা হয়েছে');
   };
 
   // Firestore synchronization
@@ -823,6 +885,10 @@ export const SimManagementLedger: React.FC<SimManagementLedgerProps> = ({
         onOpenColumnFilter={() => setIsColFilterModalOpen(true)}
         activeColumnsCount={visibleColumns.length}
         totalColumnsCount={ALL_COLUMNS.length}
+        visibleColumns={visibleColumns}
+        onToggleColumn={handleToggleColumn}
+        onShowAllColumns={handleShowAllColumns}
+        onResetColumns={handleResetColumns}
         canEdit={canEdit}
         branches={branches}
         operators={operators}
@@ -833,13 +899,39 @@ export const SimManagementLedger: React.FC<SimManagementLedgerProps> = ({
         statuses={statuses}
       />
 
-      {/* Table Subheader Bar matching Screenshot */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-500 px-1 py-0.5">
-        <div>
-          Showing <span className="font-bold text-slate-800">{sortedRecords.length} of {records.length}</span> records
+      {/* Table Subheader Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-500 px-1 py-1 gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div>
+            Showing <span className="font-bold text-slate-800">{sortedRecords.length} of {records.length}</span> records
+          </div>
+          {visibleColumns.length < ALL_COLUMNS.length && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-300 text-amber-900 text-xs font-medium shadow-2xs">
+              <EyeOff className="w-3.5 h-3.5 text-amber-600" />
+              <span>
+                {ALL_COLUMNS.length - visibleColumns.length} columns hidden (কলাম হাইড করা আছে)
+              </span>
+              <button
+                type="button"
+                onClick={handleShowAllColumns}
+                className="text-blue-600 hover:text-blue-800 underline font-semibold cursor-pointer ml-1"
+                title="Show all columns (সব কলাম আনহাইড করুন)"
+              >
+                Show All (সব দেখাও)
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsColFilterModalOpen(true)}
+                className="text-slate-600 hover:text-slate-900 underline cursor-pointer ml-0.5"
+                title="Customize hidden columns"
+              >
+                Customize
+              </button>
+            </div>
+          )}
         </div>
         <div className="text-slate-400 text-[11px] mt-1 sm:mt-0">
-          Click column header to sort • Action icons on right: View, Edit, Copy to New, Delete
+          Hover column header to hide • Click header to sort • Action icons on right: View, Edit, Copy, Delete
         </div>
       </div>
 
@@ -859,6 +951,8 @@ export const SimManagementLedger: React.FC<SimManagementLedgerProps> = ({
         onToggleStatus={handleToggleStatus}
         compactMode={compactMode}
         visibleColumns={visibleColumns}
+        onHideColumn={handleHideColumn}
+        onOpenColumnFilter={() => setIsColFilterModalOpen(true)}
         selectedIds={selectedIds}
         onToggleSelect={handleToggleSelect}
         onSelectAll={handleSelectAll}
