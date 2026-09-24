@@ -23,6 +23,7 @@ interface IspInformationLedgerProps {
 // Preset option lists for dropdowns
 const INITIAL_LOCATIONS = [
   'Dhaka Elephant Road',
+  'Cumilla Branch',
   'BWH-1 (Central Warehouse)',
   'BWH-2 (Secondary Store)',
   'Dhanmondi Branch',
@@ -257,11 +258,7 @@ export const IspInformationLedger: React.FC<IspInformationLedgerProps> = ({
 
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
-            if (data.category === 'Location') {
-              if (data.value && !data.value.toLowerCase().includes('cumilla')) {
-                locSet.add(data.value);
-              }
-            }
+            if (data.category === 'Location' && data.value) locSet.add(data.value);
             if (data.category === 'ISP') ispSet.add(data.value);
             if (data.category === 'Package') pkgSet.add(data.value);
             if (data.category === 'Bandwidth') bwSet.add(data.value);
@@ -269,7 +266,7 @@ export const IspInformationLedger: React.FC<IspInformationLedgerProps> = ({
 
         // Still merge with existing records to ensure data integrity
         records.forEach(r => {
-            if (r.locationName && !r.locationName.toLowerCase().includes('cumilla')) locSet.add(r.locationName);
+            if (r.locationName) locSet.add(r.locationName);
             if (r.ispName) ispSet.add(r.ispName);
             if (r.packageName) pkgSet.add(r.packageName);
             if (r.bandwidth) bwSet.add(r.bandwidth);
