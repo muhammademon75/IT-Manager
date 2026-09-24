@@ -238,13 +238,13 @@ export const IspInformationLedger: React.FC<IspInformationLedgerProps> = ({
     
     // Seed initial data if DB is empty
     const seedInitialOptions = async () => {
-        const snapshot = await getDoc(doc(db, 'system_initialized', 'v1'));
+        const snapshot = await getDoc(doc(db, 'system_initialized', 'v2'));
         if (!snapshot.exists()) {
             for (const loc of INITIAL_LOCATIONS) await addDoc(collection(db, 'manage_system_options'), { category: 'Location', value: loc, createdAt: serverTimestamp() });
             for (const isp of INITIAL_ISPS) await addDoc(collection(db, 'manage_system_options'), { category: 'ISP', value: isp, createdAt: serverTimestamp() });
             for (const pkg of INITIAL_PACKAGES) await addDoc(collection(db, 'manage_system_options'), { category: 'Package', value: pkg, createdAt: serverTimestamp() });
             for (const bw of INITIAL_BANDWIDTHS) await addDoc(collection(db, 'manage_system_options'), { category: 'Bandwidth', value: bw, createdAt: serverTimestamp() });
-            await setDoc(doc(db, 'system_initialized', 'v1'), { initialized: true });
+            await setDoc(doc(db, 'system_initialized', 'v2'), { initialized: true });
         }
     };
     seedInitialOptions();
@@ -257,7 +257,11 @@ export const IspInformationLedger: React.FC<IspInformationLedgerProps> = ({
 
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
-            if (data.category === 'Location') locSet.add(data.value);
+            if (data.category === 'Location') {
+              if (data.value && !data.value.toLowerCase().includes('cumilla')) {
+                locSet.add(data.value);
+              }
+            }
             if (data.category === 'ISP') ispSet.add(data.value);
             if (data.category === 'Package') pkgSet.add(data.value);
             if (data.category === 'Bandwidth') bwSet.add(data.value);
@@ -265,7 +269,7 @@ export const IspInformationLedger: React.FC<IspInformationLedgerProps> = ({
 
         // Still merge with existing records to ensure data integrity
         records.forEach(r => {
-            if (r.locationName) locSet.add(r.locationName);
+            if (r.locationName && !r.locationName.toLowerCase().includes('cumilla')) locSet.add(r.locationName);
             if (r.ispName) ispSet.add(r.ispName);
             if (r.packageName) pkgSet.add(r.packageName);
             if (r.bandwidth) bwSet.add(r.bandwidth);
