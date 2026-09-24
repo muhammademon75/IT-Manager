@@ -28,6 +28,7 @@ import { StorageCluster } from './components/StorageCluster';
 import ServerMonitoring from './components/ServerMonitoring';
 import { MoneyReceiptLedger } from './components/MoneyReceiptLedger';
 import { SimManagementLedger } from './components/SimManagementLedger';
+import { IspInformationLedger } from './components/IspInformationLedger';
 import { Requisition, Acknowledgement, ReturnChallan, ProductQuotation, CompanyProfile, PurchaseBill, UserProfile, UserPermissions, DamagedStockProposal } from './types';
 import { FolderHeart, LogIn, LogOut, Code, Heart, Monitor, Terminal, FileCheck, Database, FileText, Settings, PanelLeftOpen, PanelLeftClose, Menu, RefreshCw, Activity, CreditCard, Wifi, BookOpen, Clock, ShieldAlert, CheckCircle2, XCircle, User as UserIcon, Lock, Eye, EyeOff, ShieldCheck, KeyRound, Sparkles, Server, ReceiptText, Smartphone } from 'lucide-react';
 
@@ -53,7 +54,7 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   
   // Initial view from URL search param or hash
-  const getViewFromUrl = (): 'dashboard' | 'create_form' | 'view_form' | 'copy_requisition' | 'presets_config' | 'acknowledgements' | 'create_acknowledgement' | 'view_acknowledgement' | 'edit_acknowledgement' | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan' | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation' | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills' | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'money_receipts' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'notes_ledger' | 'servers' | 'sim_management' => {
+  const getViewFromUrl = (): 'dashboard' | 'create_form' | 'view_form' | 'copy_requisition' | 'presets_config' | 'acknowledgements' | 'create_acknowledgement' | 'view_acknowledgement' | 'edit_acknowledgement' | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan' | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation' | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills' | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'money_receipts' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'notes_ledger' | 'servers' | 'sim_management' | 'isp_connections' => {
     try {
       const params = new URLSearchParams(window.location.search);
       const viewParam = params.get('view') || window.location.hash.replace('#', '');
@@ -63,7 +64,7 @@ export default function App() {
         'return_challans', 'create_return_challan', 'view_return_challan', 'edit_return_challan',
         'quotations', 'create_quotation', 'edit_quotation', 'view_quotation', 'copy_quotation',
         'company_profile', 'customer_info', 'user_management', 'purchase_bills',
-        'create_purchase_bill', 'view_purchase_bill', 'edit_purchase_bill', 'copy_purchase_bill', 'money_receipts', 'monitor_targets', 'remote_credentials', 'hotspot_ledger', 'notebook_ledger', 'notes_ledger', 'servers', 'sim_management',
+        'create_purchase_bill', 'view_purchase_bill', 'edit_purchase_bill', 'copy_purchase_bill', 'money_receipts', 'monitor_targets', 'remote_credentials', 'hotspot_ledger', 'notebook_ledger', 'notes_ledger', 'servers', 'sim_management', 'isp_connections',
         'damaged_stock_proposals', 'create_damaged_stock_proposal', 'edit_damaged_stock_proposal', 'view_damaged_stock_proposal', 'copy_damaged_stock_proposal'
       ];
       if (validViews.includes(viewParam)) {
@@ -82,7 +83,7 @@ export default function App() {
     | 'return_challans' | 'create_return_challan' | 'view_return_challan' | 'edit_return_challan'
     | 'quotations' | 'create_quotation' | 'edit_quotation' | 'view_quotation' | 'copy_quotation'
     | 'company_profile' | 'customer_info' | 'user_management' | 'purchase_bills'
-    | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'money_receipts' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'servers' | 'sim_management'
+    | 'create_purchase_bill' | 'view_purchase_bill' | 'edit_purchase_bill' | 'copy_purchase_bill' | 'money_receipts' | 'monitor_targets' | 'remote_credentials' | 'hotspot_ledger' | 'notebook_ledger' | 'servers' | 'sim_management' | 'isp_connections'
     | 'damaged_stock_proposals' | 'create_damaged_stock_proposal' | 'edit_damaged_stock_proposal' | 'view_damaged_stock_proposal' | 'copy_damaged_stock_proposal'
   >(getViewFromUrl);
 
@@ -171,6 +172,9 @@ export default function App() {
     }
     if (targetView === 'sim_management') {
       return perms.simManagement?.view ?? false;
+    }
+    if (targetView === 'isp_connections') {
+      return true; // Simple permission for now
     }
 
     return false;
@@ -948,6 +952,20 @@ export default function App() {
                     >
                       <Wifi className="h-4 w-4 text-cyan-400 shrink-0" />
                       Hotspot Information Ledger
+                    </button>
+                  )}
+
+                  {hasViewPermission('servers') && (
+                    <button
+                      onClick={() => setView('isp_connections' as any)}
+                      className={`flex items-center gap-3 w-full px-3 py-2 text-xs font-semibold text-left cursor-pointer rounded-lg transition-all ${
+                        view === 'isp_connections'
+                          ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 font-bold'
+                          : 'text-slate-400 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Wifi className="h-4 w-4 text-blue-400 shrink-0" />
+                      ISP Information Ledger
                     </button>
                   )}
 
@@ -1854,6 +1872,13 @@ export default function App() {
                       currentUser={user}
                       isAdmin={isAdmin}
                       permissions={userProfile?.permissions?.simManagement}
+                    />
+                  )}
+                  {view === 'isp_connections' && (
+                    <IspInformationLedger
+                      currentUser={user}
+                      isAdmin={isAdmin}
+                      permissions={{ view: true, edit: true, delete: true }}
                     />
                   )}
                 </motion.div>

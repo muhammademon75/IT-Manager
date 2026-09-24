@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer, disableNetwork } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, disableNetwork } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -51,7 +51,7 @@ export function checkIsQuotaError(error: unknown): boolean {
 // Validate Connection to Firestore (Skill Requirement)
 async function testConnection() {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    await getDoc(doc(db, 'test', 'connection'));
   } catch (error) {
     if (checkIsQuotaError(error)) {
       setQuotaExceededState(true);

@@ -21,6 +21,44 @@ export interface UserPermissions {
   presetSigners?: LedgerPermissions;
   servers?: LedgerPermissions;
   simManagement?: LedgerPermissions;
+  ispInformation?: LedgerPermissions;
+}
+
+export interface IspConnection {
+  id: string;
+  // 1. আইএসপি ও গ্রাহক পরিচিতি / ISP & CLIENT INFORMATION
+  userName: string;
+  locationName: string;
+  ispName: string;
+  contactPersonName: string;
+  contactNumber: string;
+  isActive: boolean;
+
+  // 2. পিপিপিও ইউজার ও পেমেন্ট তথ্য / PPPOE & PAYMENT AUTHENTICATION
+  pppoeUser: string;
+  pppoePassword: string;
+  paymentId: string;
+
+  // 3. স্ট্যাটিক আইপি সাবসেট / STATIC IP CONFIGURATION
+  ipAddress: string;
+  subnetMask: string;
+  gateway: string;
+  dns1: string;
+  dns2: string;
+  port: string;
+  routerUser: string;
+  routerPassword: string;
+
+  // 4. প্যাকেজ এবং বিলিং / PACKAGE & BILLING
+  packageName: string;
+  bandwidth: string;
+  billAmount: number | string;
+
+  // Metadata
+  createdBy?: string;
+  createdByEmail?: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 export interface UserProfile {
